@@ -1,233 +1,241 @@
-# Loop Guard —— 工具循环调用守卫插件（计划书）
+# dsh-loop-guard
 
-> 状态：设计讨论定稿前草案 v0.1
-> 目标宿主：DeepSeek Harness（DSH）agent 平面，TypeScript cordis 插件
-> 本文件是计划书；插件源码将放在本目录下。
+> **Structural loop-breaking guard for DeepSeek Harness (DSH) agents.**
+> 在工具决策链上物理切断"零信息量"的重复调用，并给模型指出活路——
+> 而不是在它已经退化时再劝一句。
+
+当 agent 陷入工具循环（同一个调用反复执行、结果逐字节相同、思考内容都在重放）时，
+上下文被垃圾块填满、响应越来越慢、之后无论发什么都会继续循环。
+内置的 `dsh-repeat-tool-reminder` 是**纯劝告**的哨兵；本插件是**结构性阻断**的闸门。
 
 ---
 
-## 1. 要解决的问题
+## 目录
 
-长时间、重上下文的会话中，模型会陷入**无意义的工具循环调用**：
-同一个调用反复执行、结果完全相同、思考内容也逐字重复，且一旦形成，
-后续无论用户发什么都会继续循环，同时响应速度显著变慢。
+- [背景：这个循环长什么样](#背景这个循环长什么样)
+- [功能](#功能)
+- [与内置插件的区别](#与内置插件的区别)
+- [技术实现](#技术实现)
+- [配置参考](#配置参考)
+- [安装与部署](#安装与部署)
+- [开发与测试](#开发与测试)
+- [能力边界（诚实说明）](#能力边界诚实说明)
+- [License](#license)
 
-### 已观察到的三份证据
+---
+
+## 背景：这个循环长什么样
+
+三份真实会话证据：
 
 | 证据 | 现象 |
 |---|---|
-| 证据 A（会话截图 1） | 「搜索文件内容」同参调用连续两次，结果完全一致（`plan.md` 1550/1755/1897），中间无任何思考 |
-| 证据 B（另一工作区复盘） | 无边界 grep 打到 `node_modules`/`target`，250 条匹配长列表 + 20000000-byte cap 溢出；`edit` 报 "file has not been read" 后不去 read，反而继续 grep"定位行号"（行号早已拿到）；前期 .doc 解析、全库比对耗尽状态，最后一步简单写入时崩溃 |
-| 证据 C（会话截图 2） | 模型**明确说出**"我又卡在同一个 grep 上了，改用 read 推进"，紧接着又刷了十几个一模一样的 grep（同正则、同结果） |
+| A | 「搜索文件内容」同参调用连续两次，结果完全一致，中间无任何思考 |
+| B | 无边界 grep 打进 `node_modules`/`target`，250 条匹配长列表 + 20MB 溢出；`edit` 报 "file has not been read" 后不去 read，反而继续 grep"定位行号"（行号早已拿到） |
+| C | 模型**明确说出**"我又卡在同一个 grep 上了，改用 read 推进"，紧接着又刷了十几个一模一样的 grep（同正则、同结果、思考逐字重放） |
 
-**证据 C 是关键**：模型"知道"自己在循环、也说出了正确方案，但生成的
-动作照样重放。这证明对这类循环，**注入式劝告无效**——必须在工具决策链上
-硬性切断重复，强制生成走向分叉。
+**证据 C 是关键**：模型"知道"自己在循环、也说出了正确方案，但生成的动作照样重放。
+对这种退化态，往上下文里追加建议（无论追加多少条）都撬不动概率质量——
+唯一有效的干预是**把重复的路物理堵死**，让生成被迫分叉。
 
-### 归因（与证据对应）
+## 功能
 
-1. **上下文堆积 + 噪声污染（主因，也是变慢的原因）**：巨型、高度相似的
-   工具输出占满注意力；每轮全量 prefill，越循环越慢。
-2. **无任务锚点**：每步从嘈杂上下文重新推导"下一步"，推导失败就退回
-   重复上一动作。
-3. **真卡点被回避**：收到明确可执行的错误（先 read 再 edit）后去做
-   低风险搜索动作，即"错误回避循环"。
-4. **前期任务过重**：状态在收尾阶段已严重退化。
+### 检测器
 
----
-
-## 2. 循环类型学
-
-| 类型 | 特征 | 现有防护 | 本插件 |
+| 检测器 | 抓什么 | 判据 | 误报防线 |
 |---|---|---|---|
-| A 严格同参重复 | 同工具+同参+同结果，思考可重放 | 内置 `dsh-repeat-tool-reminder`（3/5/8 次提醒，纯劝告） | **硬阻断**（见下） |
-| B 近似重复漂移 | 参数微调反复搜同一批东西，结果高度重叠 | 无（README 明说不支持 fuzzy） | 结果重叠度检测 |
-| C 错误回避循环 | 可执行的报错不处理，转而做相邻安全动作 | 无 | 错误未解决检测 |
-| D 上下文退化 | 巨型输出/压缩反噬诱发 A/B/C | `compaction-tool-result-pruner`、`dsh-spill-policy`（事后兜底） | 体量预警 + 提示限定范围 |
+| **D1 零信息量重复** | 同参同结果连发 | 同工具 + 规范化参数 + **结果哈希逐字节相同** | 结果变化即重置；轮询（结果在变）永不触发 |
+| **D1' step 级重放** | 思考+回复+调用整段逐字重放 | 相邻两次 attempt 的流签名相同（`agent/assistant-stream`） | 签名 <100 字符不作数 |
+| **D2 近似重复漂移** | 换着花样搜同一批东西 | 不同参数的结果行集合 Jaccard 重叠 ≥ 0.9 | 同 key 精确重复归 D1 管，不重复报 |
+| **D3 错误回避循环** | 报错不处理、绕着走 | 失败后 N 步内无对症动作（read / 共享路径） | 对症动作出现即解除 |
+| **D4 无进展** | 原地打转 | 连续 N 次调用无任何新结果 | 新结果立刻清零 |
+| **D5 噪声预防** | 无边界搜索撑爆上下文 | 搜索类调用缺 `path`/`include` 作用域 | 可配 `allow` 放行 |
 
-放大器：无进度锚点（缺 todo 类清单）→ 所有类型更容易发生。
+### 干预阶梯（按侵入性递增）
 
-### 为什么内置守卫不够（对照其自述限制）
-
-- **纯劝告**（"Advisory, not veto"）——证据 C 证明劝告在退化态无效；
-- **精确匹配才计数**——B 类完全不可见；
-- **新用户消息清零计数**——"之后问什么都循环"的场景每次清零重来；
-- **第 8 次后永久沉默**——最需要干预的阶段反而没有动作；
-- **无进展/错误回避检测**——C 类完全无覆盖。
-
----
-
-## 3. 这个插件能做什么 / 不能做什么（承诺边界）
-
-### 能做（按把握度排序）
-
-1. **机械性切断 A 类循环（高把握）**：第 2 次同参同结果调用不再执行，
-   直接返回结构化拒绝（含"结果与上次完全相同"的哈希证据、上一份结果的
-   位置、明确替代动作）。检测是确定性的（参数哈希+结果哈希），干预是
-   硬性的，**不依赖模型配合**。你截图里的那种连刷会在第 2~3 次被截停。
-2. **让 B/C 类尽早暴露（中高把握）**：结果重叠度过高或"报错后 N 步无对症
-   动作"时注入结构化提醒；连续无响应升级为阻断。误报率取决于阈值，
-   提供配置并默认保守。
-3. **预防 D 类（中把握）**：无边界 grep、超大读取在执行前提示限定范围/
-   分页，从源头减少噪声注入。
-4. **给用户一个明确信号**：触发阻断时以来源标记（类似内置守卫的
-   `repeat-tool-reminder` 来源标注）显示在会话里，用户能看出"守卫介入了"。
-
-### 不能做（诚实边界）
-
-1. **不治已病**：对已经病态的会话，插件防复发但不清洗历史。已中毒的
-   会话仍需手动 `/compact`、清上下文或开新会话。
-2. **不改变模型本身的退化**：它切断的是**动作循环**。模型可能改为循环
-   另一个调用——守卫同样会截停并升级，但"思考变慢/变笨"本身是上下文
-   长度问题，归 compaction 与结果裁剪管。
-3. **不保证零误伤**：合法的幂等轮询、改后重读等场景可能被拦。缓解手段：
-   结果哈希判据（只拦"结果都没变"的）、工具级 include/exclude、可调阈值、
-   阻断前先劝告一档。
-4. **不解决响应慢的全部来源**：只消除循环对上下文增长的贡献；prefill
-   本身的成本随上下文线性增长。
-
----
-
-## 4. 设计
-
-### 4.1 检测器
-
-| 检测器 | 目标类型 | 信号 | 判据要点 |
-|---|---|---|---|
-| D1 同参重复 | A | `(工具, 规范化参数)` 重复 + **结果哈希相同** | 第 2 次即触发干预（比内置的 3 次早） |
-| D1' step 级重放 | A | 相邻两步思考文本逐字相同 + 调用相同 | 零误报铁证，直接进阻断档 |
-| D2 结果重叠 | B | 两次调用结果有效内容重叠 > 阈值（默认 90%） | 参数相似度只做辅助判据 |
-| D3 错误未解决 | C | 带修复指令的错误后 N 步（默认 3）内无对症调用 | 如 `edit` 失败 → 期待 `read` 出现 |
-| D4 无进展 | B/C | 连续 N 步：无写文件、无新结果哈希、无新结论 | 触发进度锚点注入 |
-| D5 体量预警 | D | 无 `path`/`include` 的搜索调用；读取预估超大 | 执行前提示 |
-
-### 4.2 干预阶梯（按侵入性递增，可配置）
-
-| 档 | 手段 | 适用 |
+| 档 | 手段 | 触发 |
 |---|---|---|
-| I1 | `additionalContexts` 注入结构化提醒（合成 user message，来源标注，KV-cache 友好） | B/C/D 初发、D1 首次 |
-| I2 | 结果替换：返回"与第 N 次结果完全相同，答案见上文 X"的新颖内容块（**注意：不能回填原结果**——相同的旧结果块只会喂养重放模式） | D1 第 2 次 |
-| I3 | `PostToolDecision` **阻断**：拒绝执行，返回结构化错误 + 哈希证据 + 明确替代动作（"用 read 读 X"而不是"换个方法"） | D1 第 2 次（同结果）、D1'、升级后 |
-| I4 | 经 `Agent.inbox` 注入进度锚点（当前目标/已完成/下一步） | D4 |
-| I5 | 熔断报告用户："守卫已强制中断循环，建议 /compact 或新开会话" | 连续升级无效时 |
+| I1 | 结构化提醒（合成消息，来源标注 `loop-guard`） | 第二次同结果、D2/D3/D4 信号 |
+| I2 | **结果摘要回填**：拒绝理由里直接带回上一份结果的摘要，消灭"信息丢了所以重搜"的动机 | 拒绝时 |
+| I3 | **硬阻断**：`tools/pre-execute` 返回 deny，调用不执行；理由 = 哈希证据 + 结果摘要 + 可照抄的替代动作 + 逃生口 | 第三次同结果请求（重放模式下第二次） |
+| I4 | 进度锚点：注入"当前目标 / 已完成 / 下一步"短锚点 | D4 触发 |
+| I5 | **熔断**：连续干预无进展 → 命令模型停手、向用户汇报 | 干预计数达阈值 |
 
-**核心原则：对已退化的循环，干预必须是结构性的（阻断/替换），加法式劝告只用于未退化阶段。**
+### 一次典型拦截（模型看到什么）
 
-### 4.3 挂钩点（全部为 DSH 现有接口）
-
-- `tools/pre-execute`：执行前拦截 → I2/I3（阻断就发生在这里）
-- `tools/post-execute`：计数与结果哈希采集（对被拒调用也触发，同内置守卫做法）；`additionalContexts` → I1
-- `agent/pre-step`：错误未解决检测、D4 检查、用户消息边界（**跨轮不清零**，与内置守卫相反，状态挂 agent 生命周期）
-- `assistant/message` / 会话日志：D1' 思考文本比对（实现时确认最顺读取路径）
-- `Agent.inbox`：I4 锚点注入
-
-### 4.4 配置草案
-
-```yaml
-- name: '<本插件包名>'
-  config:
-    repeat:
-      identicalBlockAt: 2        # 同参同结果第 2 次阻断
-      replayBlockAt: 2           # step 级重放第 2 次阻断
-    overlap:
-      threshold: 0.9             # 结果重叠度
-      window: 10
-    errorWatch:
-      steps: 3                   # 报错后 N 步无对症动作则提醒/阻断
-    noise:
-      unscopedSearchWarn: true
-    escalation:
-      noticeOnly: false          # true 时退化为纯劝告（安全模式）
-      circuitBreakAfter: 6       # 连续 6 次干预无效 → I5
-    include: []                  # 空 = 全部工具
-    exclude: []                  # 如需放行合法轮询工具写这里
+```text
+[loop-guard] Duplicate tool call blocked: `grep` with identical arguments has already
+executed 2 times and returned byte-identical results (hash 3f9a12c40b7d8e01). No new
+information can come from running it again.
+Previous result (preserved in the conversation above): match at 1550, match at 1755…
+Do NOT call `grep` with these arguments again. Take ONE different action that moves the
+task forward (read/edit a file, run a command, use another tool, or ask the user). If you
+have concrete evidence that the world changed since the last run, repeat the exact call
+one more time and it will be executed exactly once.
 ```
 
----
+## 与内置插件的区别
 
-## 5. 部署
+内置 `dsh-repeat-tool-reminder`（`dsh` 基础包默认开启）是本插件的参照物与互补件。
+它的 README 原文承认：阻断"留给后来的 listener"——本插件就是那个 listener。
 
-### 5.1 语言与形态
+| | `dsh-repeat-tool-reminder` | **dsh-loop-guard** |
+|---|---|---|
+| 信条 | Advisory, not veto（只劝告） | 结构性切断 + 可升级阻断 |
+| 判据 | 仅 `(工具, 规范化参数)` 精确相等，**不看结果** | 参数 + **结果哈希** + 重放签名 + 结果重叠 |
+| 变体覆盖 | 近似变体明确不支持（README 原文） | D2 结果重叠抓近似漂移 |
+| 错误回避循环 | 无对应机制 | D3 专项检测 |
+| 首次动作 | 第 3 次重复发提醒（然后 5、8） | 第 2 次同结果即提醒；第 3 次**拒绝执行** |
+| 超过最高阈值 | **永久沉默**（README 原文） | I5 熔断并要求向用户汇报 |
+| 新用户消息 | **清零计数**（跨轮循环救不了） | 计数不清零（状态挂 agent 生命周期） |
+| 会话恢复/压缩 | 内存态，恢复即清空 | 同为内存态，但状态在守卫侧、跨压缩存活 |
+| 误伤阀门 | `thresholds`/`exclude` | 结果哈希判据 + 逃生口 + `noticeOnly` + include/exclude |
+| 提醒内容 | "换个方法吧" + 参数预览 | 哈希证据 + 结果摘要回填 + 可照抄的替代动作 |
 
-**TypeScript**（无悬念）：拦截接口是 DSH Node 进程内的 cordis 服务
-（`tools/pre-execute` 等决策链），只有 TS 插件能同步站上去阻断调用；
-Python 仅用于离线分析会话日志、调检测阈值。
+两者可以共存：内置守卫管"轻度重复的柔性提醒"，本插件管"零信息量重复的硬截停"。
+嫌提醒重叠时可开 `noticeOnly` 对比灰度。
 
-插件形态与 `packages/guard/repeat-tool-reminder`（内置守卫，单
-`src/index.ts`）同构：一个普通 npm 包 + `Config` schema + 事件监听器。
+## 技术实现
 
-### 5.2 开发与安装路径
+### 架构
 
-1. **源码**：本目录 `D:\something_else\web\out_of_loop`（`src/index.ts` →
-   构建 `lib/index.js`，`package.json` 声明包名与入口）。
-2. **安装**：用 `plugin_manager` 工具 `action: install_bundle`，`target`
-   指向本包的绝对目录，装入当前 profile。**该 profile 的所有会话生效，
-   重启后保留**（DSH 官方插件安装通道，非私改）。
-3. **组合挂载**：bundle 的 composition 以行式 YAML 声明插件清单，格式
-   与内置 preset 相同（参考本机 `C:\Users\28479\.dsh\.agent-presets\liangshen\agent.cordis.yml`
-   的行式写法；注意 `$DSH_HOME/.agent-presets/` 旧目录已废弃，仅作格式参考）：
+```text
+tools/pre-execute ──► decidePreCall ──► {allow} | {deny, reason}
+   (执行前闸门)         │  D5 无边界搜索
+                        │  D1 零信息量（结果哈希链 + 逃生口 + 锁定）
+                        └─ D1' 重放模式 → 阻断门槛降为 1
+
+tools/post-execute ──► observePostCall ──► additionalContexts (I1/I4/I5)
+   (执行后决策)          │  结果哈希链维护、新鲜度判定
+                         │  D2 结果重叠 / D3 错误未解决 / D4 无进展
+                         └─ I5 干预计数 → 熔断指令
+
+agent/assistant-stream ──► observeStreamFrame ──► ReplayState
+   (纯观察)                 start/chunk/end 帧 → 思考+回复+调用签名
+                            相邻签名逐字相同 ⇒ replayMode
+```
+
+### 核心判据：零信息量
+
+> 同工具 + 同规范化参数 + **结果哈希与上次逐字节相同** ⇒ 再执行一次携带的信息量严格为零。
+
+- **规范化**：参数深度按键排序后 `JSON.stringify`（属性顺序不构成身份差异）；
+- **结果哈希**：`sha256(value|error + content)`，任何字段变化都产生新指纹；
+- **证明链**：两次同结果执行即证明零信息量 → 第三次请求**拒绝执行**；
+- **逃生口**：拒绝后模型坚持要求执行则放行恰好一次（世界可能真的变了）；
+  逃生结果仍相同 ⇒ **永久锁定**；逃生结果不同 ⇒ 链重置、一切照常；
+- **轮询安全**：结果在变（`H1→H2→H3`）永不触发。
+
+这套判据是确定性的——**不依赖模型配合**，这正是它对退化态有效的原因。
+
+### 为什么拒绝理由里要"回填结果摘要"
+
+循环的一个成因是模型**以为信息丢了**所以重搜。拒绝理由直接带上一份结果的摘要
+（含哈希与关键行），连"再查一次"的动机一起消灭；同时给出可照抄的下一步
+（"调用 `read`，offset=1500"）而不是抽象的"换个方法"——证据 C 表明模型
+说得出口"改用 read"但做不到，那就不让它自己选。
+
+### 宿主接口（全部为 DSH 现有公开缝）
+
+| 接口 | 用途 | 依据 |
+|---|---|---|
+| `tools/pre-execute` | 阻断闸门：`{kind:'deny', reason}` | `dsh-tools` 决策瀑布（deny 经同一管线成为工具结果反馈） |
+| `tools/post-execute` | 结果哈希采集 + `additionalContexts` 注入 | 内置守卫同通道（来源标注强制） |
+| `agent/assistant-stream` | D1' 签名聚合（start/chunk/end 帧） | `dsh-agent` 事件面（`{agent, frame}` 通知型） |
+
+合成消息与 `@deepseek-ai/dsh-llm` 的构造器同构（uuid + 深冻结 + 强制 `source` 标注），
+本地实现仅 20 行，避免构建期依赖。接口勘察记录见 [docs/interfaces.md](docs/interfaces.md)。
+
+### 模块结构
+
+```text
+src/
+├── index.ts       # 插件入口：Config schema + apply() 接线两个瀑布与流事件
+├── state.ts       # 检测状态机（纯逻辑）：D1–D5 判定、逃生/锁定、干预与熔断
+├── replay.ts      # D1' 流签名聚合与重放判定（纯逻辑）
+├── canonical.ts   # 参数规范化、结果哈希、行集合重叠度
+├── messages.ts    # 干预文案（证据 + 摘要回填 + 替代动作 + 逃生口）
+├── config.ts      # schemastery schema + fail-loud 校验
+└── host-types.ts  # 宿主缝的最小结构类型
+```
+
+状态机与文案是纯函数（无宿主依赖），可单测；`index.ts` 只做接线。
+状态挂 `WeakMap<Agent, AgentState>`，per-agent 隔离、跨用户消息与压缩存活。
+
+## 配置参考
+
+```yaml
+- name: 'dsh-loop-guard'
+  config:
+    repeatLimit: 2          # 同结果执行几次即认定零信息量
+    escapeRuns: 1           # 逃生口次数（拒绝后坚持重试的放行额度）
+    noticeOnly: false       # true = 安全模式，只提醒不阻断
+    include: []             # 仅跟踪这些工具（通配符）；空 = 全部
+    exclude: [job_output, job_kill, job_list, ask_user_question, 'schedule_*', todo_write]
+    searchTools: [grep, search, search_file_content]   # D5 搜索类工具
+    scopeFields: [path, include]                       # D5 必带作用域字段
+    unscopedSearch: deny    # deny | allow
+    argumentsPreviewChars: 300
+    overlapThreshold: 0.9   # D2 行集合 Jaccard 阈值
+    overlapWindow: 10       # D2 滑动窗口
+    errorWatchSteps: 3      # D3 失败后 N 步无对症动作则提醒
+    remedialTools: [read]   # D3 视为对症动作的工具
+    anchorWindow: 5         # D4 连续 N 次无新结果注入锚点
+    replayDetection: true   # D1' step 级重放
+    minReplayChars: 100     # D1' 签名最小长度
+    circuitBreakAfter: 6    # I5 连续干预无进展的熔断阈值
+```
+
+非法配置在装入时抛出明确错误（沿用内置守卫的 fail-loud 约定，绝不静默回退）。
+
+## 安装与部署
+
+插件是标准 npm 包（ESM + 类型声明），通过 DSH 的插件组合（cordis composition）挂载：
+
+1. **构建**：`npm run build`（tsc → `lib/`，含 `.d.ts`）；
+2. **安装**：用 `plugin_manager`（`action: install_bundle`，`target` 指向本包绝对目录）
+   装入当前 profile——**profile 内所有会话生效、重启保留**，不触碰 `app.asar`；
+3. **挂载**：composition 行式声明（与内置 preset 相同格式）：
 
    ```yaml
    - id: loop-guard
-     name: '<本插件包名>'
+     name: 'dsh-loop-guard'
      config:
-       identicalBlockAt: 2
+       repeatLimit: 2
    ```
 
-4. **生效范围**：agent 平面的插件行随组合挂载于新会话；改动影响整个
-   profile，无需改 DSH 安装目录（app.asar 不可写也不该写）。
-5. **验证**：重放证据 B/C 的会话日志做离线回放（Python 分析脚本辅助），
-   统计检出率/误报率，再上真会话灰度（先 `noticeOnly: true`）。
+4. **灰度建议**：先 `noticeOnly: true` 观察提醒命中率，再开阻断档；
+   合法幂等轮询工具加进 `exclude`。
 
-### 5.3 目录规划
+## 开发与测试
 
-```
-out_of_loop/
-├── README.md            # 本计划书
-├── package.json         # 包名、入口、构建脚本
-├── src/
-│   └── index.ts         # Config schema + 监听器（对齐内置守卫的结构）
-├── scripts/
-│   └── replay_log.py    # 离线回放会话日志，调阈值（Python 唯一出场点）
-└── tests/
+```bash
+npm install
+npm run typecheck   # tsc --noEmit
+npm test            # node --test（41 项单测，进程内运行）
+npm run build       # tsc → lib/
 ```
 
----
+- 测试覆盖：规范化/哈希、状态机全决策表（含逃生与锁定、轮询安全）、
+  D2/D3/D4 信号、D1' 帧聚合、I5 熔断、插件端到端（mock 瀑布）；
+- `scripts/asar_extract.py`：从 DSH 安装目录的 `app.asar` 精确提取官方接口文档
+  与参考实现，供开发参照（第三方源码放 `reference/`，不入版本库）。
 
-## 6. 里程碑
+## 能力边界（诚实说明）
 
-| 里程碑 | 内容 | 验收 |
-|---|---|---|
-| M0 | 挖定 `tools/pre-execute` / `PostToolDecision` / `assistant/message` 的确切签名 | 接口备忘落文档 |
-| M1 | D1 + I1/I2/I3（noticeOnly 可配），单测覆盖哈希与规范化 | 同参同结果第 2 次必被截停 |
-| M2 | D1'（思考重放）、D2、D3、I4 | 证据 B/C 回放日志全检出 |
-| M3 | D4/D5、I5 熔断、配置打磨 | 灰度一个真实重会话，误报可接受 |
+**能做**：机械性切断 A 类严格重复（高把握）；让 B/C 类循环尽早暴露并可升级阻断；
+从源头减少 D 类噪声；触发时在会话里留下清晰的守卫介入痕迹。
 
----
+**不能做**：
 
-## 7. 风险与开放问题
+1. **不治已病**——已被循环污染的会话仍需 `/compact` 或新开会话，本插件防复发；
+2. **不改变模型退化本身**——它切断动作循环，不消除长上下文导致的迟钝；
+3. **零误伤无法承诺**——残余风险集中在"合法的幂等轮询"（结果暂时不变），
+   由逃生口 + `exclude` + `noticeOnly` 三层兜底；误伤的代价是多绕一步，
+   漏拦的代价是整个会话报废，这个不对称性是开阻断档的依据；
+4. `agent/assistant-stream` 的帧形状依据官方类型声明实现，**尚待真机会话冒烟验证**；
+5. 计数为内存态，会话重启后从零开始（与内置守卫相同）。
 
-1. **误伤合法重复**（幂等轮询、改后重读）：结果哈希判据 + exclude 清单 +
-   阻断前一档劝告兜底；阈值需灰度调。
-2. **阻断后的模型行为**：返回结构化错误后模型可能循环新调用——升级
-   策略保证再次截停，但需要实测错误文案哪种最能引导换策略（明确替代
-   动作 > 抽象建议）。
-3. **`assistant/message` 读取路径**：D1' 依赖推理文本，M0 确认事件面最顺
-   的拿法（订阅事件 or 读会话日志）。
-4. **与内置守卫的共存**：两者都注入提醒，注意不重复刷屏；本插件计数
-   跨用户消息不清零（故意与内置相反），文档里写明差异。
-5. **compaction 交互**：压缩后历史被裁剪，链式计数是否跨压缩保留
-   （内置守卫是"保留"）；本插件状态存 agent 生命周期侧，天然跨压缩。
+## License
 
----
-
-## 附：证据索引
-
-- 证据 A：首个会话截图（两次相同搜索，`plan.md` 1550/1755/1897）
-- 证据 B：另一工作区复盘（无边界 grep、20MB cap、edit 未 read、重任务耗尽）
-- 证据 C：第二个会话截图（"不再 grep"宣言后连刷十余次同参 grep）
-- 内置守卫规格：`@deepseek-ai/dsh-repeat-tool-reminder` README
-  （`app.asar` 内嵌；已知限制一节是本插件的立项依据）
-- 挂钩接口：`dsh-agent` README "Intercept or observe work in flight"
-  （`agent/pre-step` 可 reject/replace；`tools/post-execute` 决策可
-  `additionalContexts`/blocking）
+MIT
