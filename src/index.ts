@@ -1,0 +1,119 @@
+/**
+ * dsh-loop-guard —— 结构性循环守卫插件。
+ *
+ * 与内置 `dsh-repeat-tool-reminder`（纯劝告、精确同参计数、3/5/8 提醒）
+ * 互补：本插件在工具决策链上**结构性切断**零信息量重复（同参 + 同结果），
+ * 并为模型提供带证据的出口。设计文档见仓库 README。
+ *
+ * @module dsh-loop-guard
+ */
+
+import { canonicalize, hashResult, resultText } from "./canonical.ts";
+import { Config, validateSettings } from "./config.ts";
+import { createUserMessage, GUARD_SOURCE } from "./messages.ts";
+import { createAgentState, decidePreCall, observePostCall, tracked, type AgentState } from "./state.ts";
+import type {
+  InjectedContext,
+  PluginContext,
+  PostToolDecision,
+  PreToolDecision,
+  ToolExec,
+  ToolResult
+} from "./host-types.ts";
+
+const name = "loop-guard";
+
+/** 调用身份：工具名 + 规范化参数。 */
+function callKey(tool: string, canonical: string): string {
+  return JSON.stringify([tool, canonical]);
+}
+
+function noticeContext(text: string, summary: string): InjectedContext {
+  return createUserMessage({
+    content: [{ type: "text", text }],
+    source: { ...GUARD_SOURCE, form: "notice", summary }
+  });
+}
+
+function prependContext(ours: InjectedContext[], theirs: InjectedContext[] | undefined): InjectedContext[] {
+  return [...ours, ...(theirs ?? [])];
+}
+
+/** 安装守卫监听器。 */
+function apply(ctx: PluginContext, config: Parameters<typeof validateSettings>[0]): void {
+  const settings = validateSettings(config);
+  const states = new WeakMap<object, AgentState>();
+
+  function stateOf(agent: object): AgentState {
+    let state = states.get(agent);
+    if (state === undefined) {
+      state = createAgentState();
+      states.set(agent, state);
+    }
+    return state;
+  }
+
+  // 执行前闸门：D5 噪声预防 + 零信息量重复的结构性阻断（I2/I3）
+  ctx.on("tools/pre-execute", async (exec: ToolExec, next): Promise<PreToolDecision> => {
+    const downstream = await next();
+    const agent = exec.agent;
+    if (agent === undefined || !tracked(exec.name, settings)) return downstream;
+
+    const canonical = canonicalize(exec.arguments);
+    const key = callKey(exec.name, canonical);
+    const args = exec.arguments !== null && typeof exec.arguments === "object" && !Array.isArray(exec.arguments)
+      ? (exec.arguments as Record<string, unknown>)
+      : undefined;
+    const decision = decidePreCall(stateOf(agent), key, exec.name, canonical, args, settings);
+
+    if (decision.action === "allow") return downstream;
+    if (settings.noticeOnly) return downstream; // 安全模式：只提醒不阻断
+    // 协作式阻断：仍让下游监听器观察过执行意图，但最终结论为 deny；
+    // 若下游已给出拒绝，保留它的理由（多守卫共存）。
+    if (downstream.kind === "deny") return downstream;
+    return { kind: "deny", reason: decision.reason };
+  });
+
+  // 执行后决策：结果哈希链维护 + I1 劝告（经 additionalContexts 注入）
+  ctx.on("tools/post-execute", async (exec: ToolExec, result: ToolResult, next): Promise<PostToolDecision> => {
+    const agent = exec.agent;
+    let observation: ReturnType<typeof observePostCall> | undefined;
+    let summary = "";
+
+    if (agent !== undefined && tracked(exec.name, settings)) {
+      const canonical = canonicalize(exec.arguments);
+      const key = callKey(exec.name, canonical);
+      const observed = observePostCall(
+        stateOf(agent),
+        key,
+        exec.name,
+        canonical,
+        hashResult(result),
+        resultText(result),
+        settings
+      );
+      if (observed.notice !== undefined) {
+        observation = observed;
+        summary = `${exec.name} × ${observed.runs}`;
+      }
+    }
+
+    const downstream = await next();
+    if (observation?.notice === undefined) return downstream;
+
+    const ours = [noticeContext(observation.notice, summary)];
+    if (downstream.kind === "block") {
+      return {
+        kind: "block",
+        feedback: downstream.feedback,
+        additionalContexts: prependContext(ours, downstream.additionalContexts)
+      };
+    }
+    return {
+      ...downstream,
+      additionalContexts: prependContext(ours, downstream.additionalContexts)
+    };
+  });
+}
+
+export { Config, apply, name };

@@ -5,6 +5,7 @@ reference/
 node_modules/
 dist/
 lib/
+.pnpm-store/
 
 # 本地实验
 *.log

@@ -1,0 +1,42 @@
+{
+  "name": "dsh-loop-guard",
+  "version": "0.1.0",
+  "description": "Structural loop-breaking guard for DSH agents: blocks zero-information repeat tool calls and injects actionable escapes.",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-isolation=none tests/canonical.test.ts tests/state.test.ts tests/plugin.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "dsh",
+    "cordis",
+    "agent",
+    "loop-guard",
+    "tool-call"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/cosmokit": "~1.8.6",
+    "@deepseek-ai/schemastery": "~3.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.7.0"
+  }
+}
