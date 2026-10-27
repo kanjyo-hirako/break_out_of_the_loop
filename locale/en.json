@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Loop Guard",
+    "description": "Structural loop-breaking guard for agents: blocks zero-information repeat tool calls, detects step replay and error-avoidance loops, and injects actionable escapes."
+  }
+}

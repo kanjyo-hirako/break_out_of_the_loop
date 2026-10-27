@@ -1,0 +1,9 @@
+# dsh-loop-guard bundle 补丁 —— 安装时由 plugin_manager 合入 profile 组合。
+# 语法见 DSH `cordis-composition-reference`：insert 追加插件行。
+- insert:
+    - id: loop-guard
+      name: 'dsh-loop-guard'
+      config:
+        # 安全模式：先只提醒不阻断，观察命中率后改为 false 开启结构性阻断。
+        # 注意：行上的 config 是整体声明；改配置时把需要的字段都写全。
+        noticeOnly: true

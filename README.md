@@ -190,22 +190,23 @@ src/
 
 ## 安装与部署
 
-插件是标准 npm 包（ESM + 类型声明），通过 DSH 的插件组合（cordis composition）挂载：
+本仓库即一个标准 DSH **bundle**（`dsh.bundle.patch` + `cordis.patch.yml` +
+`locale/` + `icon.svg`），通过官方 `plugin_manager` 安装，不触碰 `app.asar`：
 
-1. **构建**：`npm run build`（tsc → `lib/`，含 `.d.ts`）；
-2. **安装**：用 `plugin_manager`（`action: install_bundle`，`target` 指向本包绝对目录）
-   装入当前 profile——**profile 内所有会话生效、重启保留**，不触碰 `app.asar`；
-3. **挂载**：composition 行式声明（与内置 preset 相同格式）：
+```powershell
+npm install && npm run build        # 本地目录安装是链接 checkout，先构建 lib/
+```
 
-   ```yaml
-   - id: loop-guard
-     name: 'dsh-loop-guard'
-     config:
-       repeatLimit: 2
-   ```
+```json
+plugin_manager { "action": "install_bundle", "target": "D:\\something_else\\web\\out_of_loop" }
+```
 
-4. **灰度建议**：先 `noticeOnly: true` 观察提醒命中率，再开阻断档；
-   合法幂等轮询工具加进 `exclude`。
+以安装结果 `application: applied` 为准（`restart-required` 则重启 DSH）。
+自带补丁默认 **`noticeOnly: true`**（只提醒）；灰度确认后改 `false` 开阻断档。
+
+**详细步骤**：[docs/INSTALL.md](docs/INSTALL.md)
+**发布到 GitHub 插件市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（索引格式、
+git/npm 双源、`market/index.json` 校验、发版流程）
 
 ## 开发与测试
 

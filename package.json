@@ -5,23 +5,30 @@
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
+  "icon": "icon.svg",
   "exports": {
     ".": {
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
     "./src/*": "./src/*",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
     "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-isolation=none tests/canonical.test.ts tests/state.test.ts tests/plugin.test.ts tests/replay.test.ts",
-    "prepublishOnly": "npm run build"
+    "validate-index": "node scripts/validate-market-index.mjs",
+    "prepublishOnly": "npm run build && npm run validate-index"
   },
   "keywords": [
     "dsh",
@@ -36,7 +43,13 @@
     "@deepseek-ai/schemastery": "~3.18.5"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-plugin-market-index": "^0.2.1-rc.3",
     "@types/node": "^26.6.5",
     "typescript": "^5.7.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }
