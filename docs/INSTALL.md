@@ -12,6 +12,25 @@
 
 ## 步骤
 
+### 0. 桌面端（Desktop）用户先看这里
+
+桌面端有**专属的 `desktop` profile**（Electron 保留，与网页端的 `web` profile
+互相独立，各自安装各自生效）。本插件是 Host-only bundle（无浏览器端部分），
+桌面/网页共享同一套 agent 运行时核心，因此完全兼容桌面端。两条安装通道：
+
+**通道 A：命令行**（先打开一次桌面端完成 profile 初始化，然后**完全退出桌面端**）：
+
+```powershell
+dsh plugin --profile desktop add D:\something_else\web\out_of_loop
+```
+
+**通道 B：应用内**——在桌面端会话里让 agent 执行
+`plugin_manager { "action": "install_bundle", "target": "<本包绝对目录>" }`
+（此时 current profile 即 `desktop`）。
+
+桌面端 profile 通常在**启动时**应用组合补丁（只有 web 模板是实时重载），
+所以安装后按 `restart-required` 提示**重启桌面端**即可生效。
+
 ### 1. 构建
 
 ```powershell

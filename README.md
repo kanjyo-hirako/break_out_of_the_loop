@@ -204,6 +204,10 @@ plugin_manager { "action": "install_bundle", "target": "D:\\something_else\\web\
 以安装结果 `application: applied` 为准（`restart-required` 则重启 DSH）。
 自带补丁默认 **`noticeOnly: true`**（只提醒）；灰度确认后改 `false` 开阻断档。
 
+**桌面端（Desktop）**：完全兼容（Host-only bundle，与网页端共享 agent 运行时）。
+用 `dsh plugin --profile desktop add <本包目录>` 或应用内 `plugin_manager` 安装，
+装后重启桌面端；详见安装指南的桌面端专节。
+
 **详细步骤**：[docs/INSTALL.md](docs/INSTALL.md)
 **发布到 GitHub 插件市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（索引格式、
 git/npm 双源、`market/index.json` 校验、发版流程）
