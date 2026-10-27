@@ -1,0 +1,11 @@
+# 第三方参考实现（从 app.asar 提取，仅供开发参照，不入版本库）
+reference/
+
+# 依赖与构建产物
+node_modules/
+dist/
+lib/
+
+# 本地实验
+*.log
+.tmp/
