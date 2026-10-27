@@ -15,14 +15,17 @@
 import { lineOverlap, preview, wildcardToRegExp } from "./canonical.ts";
 import {
   anchorNotice,
+  circuitBreakNotice,
   denyReason,
   errorWatchNotice,
   lockedDenyReason,
   overlapNotice,
+  replayNote,
   repeatNotice,
   unscopedSearchDeny,
   type RepeatEvidence
 } from "./messages.ts";
+import { createReplayState, type ReplayState } from "./replay.ts";
 
 /** 完成配置校验后的运行期设置。 */
 export interface GuardSettings {
@@ -40,6 +43,9 @@ export interface GuardSettings {
   errorWatchSteps: number;
   remedialTools: RegExp[];
   anchorWindow: number;
+  replayDetection: boolean;
+  minReplayChars: number;
+  circuitBreakAfter: number;
 }
 
 /** 单个调用身份（工具 + 规范化参数）的记录。 */
@@ -79,8 +85,12 @@ export interface AgentState {
   pendingError: PendingError | null;
   /** 自上次新鲜结果以来的连续干预次数（I5 熔断计数）。 */
   interventions: number;
+  /** 熔断已触发（新鲜结果出现前不重复触发）。 */
+  circuitBroken: boolean;
   /** D2 劝告冷却：距离上次 overlap 提醒的调用数。 */
   overlapCooldown: number;
+  /** D1' step 级重放状态。 */
+  replay: ReplayState;
 }
 
 export function createAgentState(): AgentState {
@@ -90,8 +100,10 @@ export function createAgentState(): AgentState {
     callsSinceFresh: 0,
     pendingError: null,
     interventions: 0,
+    circuitBroken: false,
     // 初始视为"久未提醒"：首次重叠立刻可报；每次提醒后进入冷却
-    overlapCooldown: Number.MAX_SAFE_INTEGER
+    overlapCooldown: Number.MAX_SAFE_INTEGER,
+    replay: createReplayState()
   };
 }
 
@@ -147,20 +159,26 @@ export function decidePreCall(
       return typeof value === "string" ? value.length > 0 : value !== undefined && value !== null;
     });
     if (!scoped) {
-      return { action: "deny", reason: unscopedSearchDeny(tool, settings.scopeFields), kind: "unscoped" };
+      return finishDeny(state, settings, "unscoped", unscopedSearchDeny(tool, settings.scopeFields));
     }
   }
 
   const rec = state.keys.get(key);
   if (rec === undefined) return { action: "allow" };
 
+  const evidence = evidenceOf(rec, settings);
+  const baseReason = rec.locked ? lockedDenyReason(evidence) : denyReason(evidence, false);
+  const reason = state.replay.replayMode ? `${baseReason}\n${replayNote()}` : baseReason;
+
   if (rec.locked) {
-    return { action: "deny", reason: lockedDenyReason(evidenceOf(rec, settings)), kind: "locked" };
+    return finishDeny(state, settings, "locked", reason);
   }
 
-  if (rec.runs < settings.repeatLimit) return { action: "allow" };
+  // D1' 重放模式下降为一次即拦（思考已逐字重放，无需等待第二次同结果）
+  const limit = state.replay.replayMode ? 1 : settings.repeatLimit;
+  if (rec.runs < limit) return { action: "allow" };
 
-  // runs >= repeatLimit：同结果已执行足够多次，零信息量成立
+  // runs >= limit：同结果已执行足够多次，零信息量成立
   if (rec.escapesUsed < settings.escapeRuns && rec.denied >= 1) {
     // 逃生口：模型在收到拒绝后坚持要求执行 → 放行恰好一次
     rec.escapesUsed += 1;
@@ -170,10 +188,26 @@ export function decidePreCall(
   }
   if (rec.escapesUsed >= settings.escapeRuns && rec.denied >= 1) {
     rec.locked = true;
-    return { action: "deny", reason: lockedDenyReason(evidenceOf(rec, settings)), kind: "locked" };
+    return finishDeny(state, settings, "locked", reason);
   }
   rec.denied += 1;
-  return { action: "deny", reason: denyReason(evidenceOf(rec, settings), false), kind: "repeat" };
+  return finishDeny(state, settings, "repeat", reason);
+}
+
+/** 记录一次干预；连续干预过多则在拒绝理由末尾附上熔断指令（I5）。 */
+function finishDeny(
+  state: AgentState,
+  settings: GuardSettings,
+  kind: "unscoped" | "repeat" | "locked",
+  reason: string
+): PreDecision {
+  state.interventions += 1;
+  let finalReason = reason;
+  if (state.interventions >= settings.circuitBreakAfter && !state.circuitBroken) {
+    state.circuitBroken = true;
+    finalReason = `${reason}\n${circuitBreakNotice(state.interventions)}`;
+  }
+  return { action: "deny", reason: finalReason, kind };
 }
 
 export interface PostObservation {
@@ -189,6 +223,8 @@ export interface PostObservation {
   anchor?: string;
   /** 逃生执行确认世界未变，刚刚锁定。 */
   lockedNow: boolean;
+  /** I5 熔断指令（连续干预无进展达到阈值时给出一次）。 */
+  circuitBreak?: string;
   /** I5 熔断信号：连续干预过多且无进展（由 index 计数判定）。 */
   freshProgress: boolean;
 }
@@ -257,7 +293,6 @@ export function observePostCall(
 
   // ── 全局进展计数（D4/I5） ──
   state.callsSinceFresh = fresh ? 0 : state.callsSinceFresh + 1;
-  state.interventions = fresh ? 0 : state.interventions + 1;
   state.overlapCooldown += 1;
 
   // ── D2 结果重叠：不同参数反复得到近乎相同的结果 ──
@@ -308,6 +343,22 @@ export function observePostCall(
   if (state.callsSinceFresh >= settings.anchorWindow) {
     observation.anchor = anchorNotice(settings.anchorWindow);
     state.callsSinceFresh = 0;
+  }
+
+  // ── I5 熔断：连续干预（拒绝或提醒）无进展达到阈值 ──
+  const intervened = observation.notice !== undefined
+    || observation.overlap !== undefined
+    || observation.errorWatch !== undefined
+    || observation.anchor !== undefined;
+  if (fresh) {
+    state.interventions = 0;
+    state.circuitBroken = false;
+  } else if (intervened) {
+    state.interventions += 1;
+    if (state.interventions >= settings.circuitBreakAfter && !state.circuitBroken) {
+      state.circuitBroken = true;
+      observation.circuitBreak = circuitBreakNotice(state.interventions);
+    }
   }
 
   // 滑动窗口维护

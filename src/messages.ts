@@ -108,6 +108,14 @@ export function circuitBreakNotice(interventions: number): string {
   );
 }
 
+/** D1' step 级重放的附注（叠加在拒绝理由后）。 */
+export function replayNote(): string {
+  return (
+    `[loop-guard] Step replay detected: your last two assistant responses (thinking, reply, and tool calls) were byte-identical. ` +
+    `The loop is mechanical — following the same plan again will reproduce it. Break the pattern deliberately: change the tool or the arguments, or stop and report to the user.`
+  );
+}
+
 /** 噪声预防（D5/I3）：无边界搜索的结构化拒绝。 */
 export function unscopedSearchDeny(tool: string, scopeFields: string[]): string {
   return (

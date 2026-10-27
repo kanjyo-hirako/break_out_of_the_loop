@@ -12,6 +12,7 @@
 import { canonicalize, hashResult, resultText } from "./canonical.ts";
 import { Config, validateSettings } from "./config.ts";
 import { collectStrings, createAgentState, decidePreCall, observePostCall, tracked, type AgentState, type PostObservation } from "./state.ts";
+import { observeStreamFrame } from "./replay.ts";
 import { createUserMessage, GUARD_SOURCE } from "./messages.ts";
 import type {
   InjectedContext,
@@ -54,6 +55,9 @@ function contextsOf(observation: PostObservation, tool: string): InjectedContext
   }
   if (observation.anchor !== undefined) {
     contexts.push(noticeContext(observation.anchor, `${tool} progress-anchor`));
+  }
+  if (observation.circuitBreak !== undefined) {
+    contexts.push(noticeContext(observation.circuitBreak, `${tool} circuit-break`));
   }
   return contexts;
 }
@@ -129,6 +133,13 @@ function apply(ctx: PluginContext, config: Parameters<typeof validateSettings>[0
       ...downstream,
       additionalContexts: prependContext(ours, downstream.additionalContexts)
     };
+  });
+
+  // D1' step 级重放：聚合 assistant 流签名（纯观察，不改写任何内容）。
+  // 相邻两次 attempt 的"思考+回复+调用"逐字相同 ⇒ 整个 step 在被机械重放。
+  ctx.on("agent/assistant-stream", ({ agent, frame }) => {
+    if (!settings.replayDetection) return;
+    observeStreamFrame(stateOf(agent).replay, frame, settings.minReplayChars);
   });
 }
 

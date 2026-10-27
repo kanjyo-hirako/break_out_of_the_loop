@@ -17,7 +17,10 @@ const baseConfig = {
   overlapWindow: 10,
   errorWatchSteps: 3,
   remedialTools: ["read"],
-  anchorWindow: 5
+  anchorWindow: 5,
+  replayDetection: true,
+  minReplayChars: 100,
+  circuitBreakAfter: 6
 };
 
 const settings: GuardSettings = validateSettings(baseConfig);

@@ -62,9 +62,27 @@ export type PostToolDecision =
   | { kind: "accept"; value?: unknown; content?: ContentBlock[]; additionalContexts?: InjectedContext[] }
   | { kind: "block"; feedback: ContentBlock[]; additionalContexts?: InjectedContext[] };
 
+/** `agent/assistant-stream` 的帧（chunk 内容按最小形状防御式取用）。 */
+export interface AssistantStreamFrame {
+  type: "start" | "chunk" | "end";
+  attemptId?: unknown;
+  revision?: number;
+  index?: number;
+  time?: number;
+  chunk?: {
+    type?: unknown;
+    text?: unknown;
+    argumentsDelta?: unknown;
+    name?: unknown;
+    id?: unknown;
+  };
+  outcome?: { kind?: unknown };
+}
+
 /** cordis 插件上下文的最小面：只需事件瀑布注册。 */
 export interface PluginContext {
   on(event: "tools/pre-execute", listener: (exec: ToolExec, next: () => Promise<PreToolDecision>) => PreToolDecision | Promise<PreToolDecision>): void;
   on(event: "tools/post-execute", listener: (exec: ToolExec, result: ToolResult, next: () => Promise<PostToolDecision>) => PostToolDecision | Promise<PostToolDecision>): void;
   on(event: "agent/pre-step", listener: (payload: { agent: object; messages: Array<{ source: ContextSource }> }, next: () => unknown) => unknown): void;
+  on(event: "agent/assistant-stream", listener: (payload: { agent: object; frame: AssistantStreamFrame }) => void): void;
 }

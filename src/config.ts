@@ -43,7 +43,13 @@ export const Config = z.object({
   /** D3：视为"对症动作"的工具（通配符）。 */
   remedialTools: z.array(z.string()).default(["read"]),
   /** D4：连续 N 次无新结果则注入进度锚点。 */
-  anchorWindow: z.number().default(5)
+  anchorWindow: z.number().default(5),
+  /** D1'：是否启用 step 级重放检测（思考+回复+调用逐字相同）。 */
+  replayDetection: z.boolean().default(true),
+  /** D1'：签名最小长度，低于此长度不构成重放证据。 */
+  minReplayChars: z.number().default(100),
+  /** I5：连续 N 次干预（拒绝/提醒）无进展则熔断报告用户。 */
+  circuitBreakAfter: z.number().default(6)
 });
 
 /** fail-loud 校验并编译运行期设置。 */
@@ -62,6 +68,9 @@ export function validateSettings(config: {
   errorWatchSteps: number;
   remedialTools: string[];
   anchorWindow: number;
+  replayDetection: boolean;
+  minReplayChars: number;
+  circuitBreakAfter: number;
 }): GuardSettings {
   const {
     repeatLimit,
@@ -77,7 +86,10 @@ export function validateSettings(config: {
     overlapWindow,
     errorWatchSteps,
     remedialTools,
-    anchorWindow
+    anchorWindow,
+    replayDetection,
+    minReplayChars,
+    circuitBreakAfter
   } = config;
 
   if (!Number.isInteger(repeatLimit) || repeatLimit < 2) {
@@ -107,6 +119,12 @@ export function validateSettings(config: {
   if (!Number.isInteger(anchorWindow) || anchorWindow < 2) {
     throw new Error(`loop-guard: invalid anchorWindow ${anchorWindow} — must be an integer >= 2`);
   }
+  if (!Number.isInteger(minReplayChars) || minReplayChars < 1) {
+    throw new Error(`loop-guard: invalid minReplayChars ${minReplayChars} — must be an integer >= 1`);
+  }
+  if (!Number.isInteger(circuitBreakAfter) || circuitBreakAfter < 2) {
+    throw new Error(`loop-guard: invalid circuitBreakAfter ${circuitBreakAfter} — must be an integer >= 2`);
+  }
 
   return {
     repeatLimit,
@@ -122,6 +140,9 @@ export function validateSettings(config: {
     overlapWindow,
     errorWatchSteps,
     remedialTools: remedialTools.map(wildcardToRegExp),
-    anchorWindow
+    anchorWindow,
+    replayDetection,
+    minReplayChars,
+    circuitBreakAfter
   };
 }

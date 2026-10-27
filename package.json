@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "node --test --test-isolation=none tests/canonical.test.ts tests/state.test.ts tests/plugin.test.ts",
+    "test": "node --test --test-isolation=none tests/canonical.test.ts tests/state.test.ts tests/plugin.test.ts tests/replay.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
