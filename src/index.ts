@@ -3,15 +3,16 @@
  *
  * 与内置 `dsh-repeat-tool-reminder`（纯劝告、精确同参计数、3/5/8 提醒）
  * 互补：本插件在工具决策链上**结构性切断**零信息量重复（同参 + 同结果），
- * 并为模型提供带证据的出口。设计文档见仓库 README。
+ * 并覆盖近似重复漂移（D2）、错误回避循环（D3）与无进展状态（D4）。
+ * 设计文档见仓库 README。
  *
  * @module dsh-loop-guard
  */
 
 import { canonicalize, hashResult, resultText } from "./canonical.ts";
 import { Config, validateSettings } from "./config.ts";
+import { collectStrings, createAgentState, decidePreCall, observePostCall, tracked, type AgentState, type PostObservation } from "./state.ts";
 import { createUserMessage, GUARD_SOURCE } from "./messages.ts";
-import { createAgentState, decidePreCall, observePostCall, tracked, type AgentState } from "./state.ts";
 import type {
   InjectedContext,
   PluginContext,
@@ -37,6 +38,24 @@ function noticeContext(text: string, summary: string): InjectedContext {
 
 function prependContext(ours: InjectedContext[], theirs: InjectedContext[] | undefined): InjectedContext[] {
   return [...ours, ...(theirs ?? [])];
+}
+
+/** 把一次观察产出的全部提醒转成注入上下文。 */
+function contextsOf(observation: PostObservation, tool: string): InjectedContext[] {
+  const contexts: InjectedContext[] = [];
+  if (observation.notice !== undefined) {
+    contexts.push(noticeContext(observation.notice, `${tool} × ${observation.runs}`));
+  }
+  if (observation.overlap !== undefined) {
+    contexts.push(noticeContext(observation.overlap, `${tool} overlap`));
+  }
+  if (observation.errorWatch !== undefined) {
+    contexts.push(noticeContext(observation.errorWatch, `${tool} error-unresolved`));
+  }
+  if (observation.anchor !== undefined) {
+    contexts.push(noticeContext(observation.anchor, `${tool} progress-anchor`));
+  }
+  return contexts;
 }
 
 /** 安装守卫监听器。 */
@@ -74,34 +93,31 @@ function apply(ctx: PluginContext, config: Parameters<typeof validateSettings>[0
     return { kind: "deny", reason: decision.reason };
   });
 
-  // 执行后决策：结果哈希链维护 + I1 劝告（经 additionalContexts 注入）
+  // 执行后决策：结果哈希链维护 + I1/D2/D3/I4 提醒（经 additionalContexts 注入）
   ctx.on("tools/post-execute", async (exec: ToolExec, result: ToolResult, next): Promise<PostToolDecision> => {
     const agent = exec.agent;
-    let observation: ReturnType<typeof observePostCall> | undefined;
-    let summary = "";
+    let ours: InjectedContext[] = [];
 
     if (agent !== undefined && tracked(exec.name, settings)) {
       const canonical = canonicalize(exec.arguments);
       const key = callKey(exec.name, canonical);
-      const observed = observePostCall(
+      const observation = observePostCall(
         stateOf(agent),
         key,
         exec.name,
         canonical,
         hashResult(result),
         resultText(result),
+        result.isError,
+        collectStrings(exec.arguments),
         settings
       );
-      if (observed.notice !== undefined) {
-        observation = observed;
-        summary = `${exec.name} × ${observed.runs}`;
-      }
+      ours = contextsOf(observation, exec.name);
     }
 
     const downstream = await next();
-    if (observation?.notice === undefined) return downstream;
+    if (ours.length === 0) return downstream;
 
-    const ours = [noticeContext(observation.notice, summary)];
     if (downstream.kind === "block") {
       return {
         kind: "block",

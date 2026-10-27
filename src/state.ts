@@ -5,10 +5,24 @@
  *   同工具 + 同规范化参数 + 结果哈希与上次逐字节相同 ⇒ 再执行一次不携带
  *   任何新信息。两次执行即可证明（repeatLimit=2），第三次起阻断，
  *   保留一次逃生口（世界可能变化），逃生结果仍相同则永久锁定。
+ *
+ * 三个补充检测器（近似重复 / 错误回避 / 无进展）：
+ *   D2 结果重叠：不同参数反复拿到近乎相同的结果 ⇒ 在重新搜索已有答案；
+ *   D3 错误未解决：带修复指令的失败后连续 N 步无对症动作 ⇒ 错误回避循环；
+ *   D4 无进展：连续 N 次调用没有产生任何新结果 ⇒ 注入进度锚点（I4）。
  */
 
-import { preview, wildcardToRegExp } from "./canonical.ts";
-import { denyReason, lockedDenyReason, repeatNotice, unscopedSearchDeny, type RepeatEvidence } from "./messages.ts";
+import { lineOverlap, preview, wildcardToRegExp } from "./canonical.ts";
+import {
+  anchorNotice,
+  denyReason,
+  errorWatchNotice,
+  lockedDenyReason,
+  overlapNotice,
+  repeatNotice,
+  unscopedSearchDeny,
+  type RepeatEvidence
+} from "./messages.ts";
 
 /** 完成配置校验后的运行期设置。 */
 export interface GuardSettings {
@@ -21,6 +35,11 @@ export interface GuardSettings {
   scopeFields: string[];
   unscopedSearch: "deny" | "allow";
   argumentsPreviewChars: number;
+  overlapThreshold: number;
+  overlapWindow: number;
+  errorWatchSteps: number;
+  remedialTools: RegExp[];
+  anchorWindow: number;
 }
 
 /** 单个调用身份（工具 + 规范化参数）的记录。 */
@@ -36,12 +55,44 @@ export interface KeyRecord {
   locked: boolean;
 }
 
+/** 最近调用结果（D2 重叠度量的滑动窗口）。 */
+export interface RecentEntry {
+  key: string;
+  tool: string;
+  text: string;
+}
+
+/** 待解决的失败（D3）。 */
+export interface PendingError {
+  tool: string;
+  key: string;
+  digest: string;
+  /** 失败调用参数里的字符串值（文件路径等），用于识别对症动作。 */
+  strings: string[];
+  age: number;
+}
+
 export interface AgentState {
   keys: Map<string, KeyRecord>;
+  recent: RecentEntry[];
+  callsSinceFresh: number;
+  pendingError: PendingError | null;
+  /** 自上次新鲜结果以来的连续干预次数（I5 熔断计数）。 */
+  interventions: number;
+  /** D2 劝告冷却：距离上次 overlap 提醒的调用数。 */
+  overlapCooldown: number;
 }
 
 export function createAgentState(): AgentState {
-  return { keys: new Map() };
+  return {
+    keys: new Map(),
+    recent: [],
+    callsSinceFresh: 0,
+    pendingError: null,
+    interventions: 0,
+    // 初始视为"久未提醒"：首次重叠立刻可报；每次提醒后进入冷却
+    overlapCooldown: Number.MAX_SAFE_INTEGER
+  };
 }
 
 /** 该工具是否参与跟踪（include/exclude 通配；未跟踪调用对状态机透明）。 */
@@ -58,6 +109,16 @@ function evidenceOf(rec: KeyRecord, settings: GuardSettings): RepeatEvidence {
     resultHash: rec.hash,
     resultDigest: preview(rec.lastText || "(empty result)", 300)
   };
+}
+
+/** 收集参数对象里的全部字符串值（识别文件路径等共享目标）。 */
+export function collectStrings(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, out);
+  else if (value !== null && typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) collectStrings(item, out);
+  }
+  return out;
 }
 
 export type PreDecision =
@@ -118,14 +179,30 @@ export function decidePreCall(
 export interface PostObservation {
   fresh: boolean;
   runs: number;
-  /** I1 劝告文本（第二次同结果时给出，预告下次阻断）。 */
+  /** I1 劝告（第二次同结果时给出，预告下次阻断）。 */
   notice?: string;
+  /** D2 近似重复劝告。 */
+  overlap?: string;
+  /** D3 错误未解决劝告。 */
+  errorWatch?: string;
+  /** I4 进度锚点。 */
+  anchor?: string;
   /** 逃生执行确认世界未变，刚刚锁定。 */
   lockedNow: boolean;
+  /** I5 熔断信号：连续干预过多且无进展（由 index 计数判定）。 */
+  freshProgress: boolean;
+}
+
+/** D3 判定：这个调用算不算对失败的对症处理。 */
+function isRemedial(tool: string, argsStrings: string[], pending: PendingError, settings: GuardSettings): boolean {
+  // 读取类动作（如 read）是"file has not been read"类失败的标准解法；
+  // 或者与失败调用共享同一个字符串目标（同一文件路径）。
+  if (settings.remedialTools.some((pattern) => pattern.test(tool))) return true;
+  return argsStrings.some((value) => pending.strings.includes(value));
 }
 
 /**
- * 执行后观察：维护结果哈希链、判定新鲜度、产出劝告。
+ * 执行后观察：维护结果哈希链、判定新鲜度，产出 I1/D2/D3/I4 劝告。
  */
 export function observePostCall(
   state: AgentState,
@@ -134,41 +211,110 @@ export function observePostCall(
   canonical: string,
   hash: string,
   text: string,
+  isError: boolean,
+  argsStrings: string[],
   settings: GuardSettings
 ): PostObservation {
-  let rec = state.keys.get(key);
-  if (rec === undefined) {
-    rec = { tool, canonical, hash, lastText: text, runs: 1, denied: 0, escapesUsed: 0, escapePending: false, locked: false };
-    state.keys.set(key, rec);
-    return { fresh: true, runs: 1, lockedNow: false };
-  }
-
-  const fresh = rec.hash !== hash;
+  const previous = state.keys.get(key);
+  let fresh: boolean;
+  let runs: number;
   let lockedNow = false;
-  if (fresh) {
+
+  if (previous === undefined) {
+    state.keys.set(key, { tool, canonical, hash, lastText: text, runs: 1, denied: 0, escapesUsed: 0, escapePending: false, locked: false });
+    fresh = true;
+    runs = 1;
+  } else if (previous.hash !== hash) {
     // 世界变了（结果不同）：链重新计数，解除此前的重复判定
-    rec.hash = hash;
-    rec.lastText = text;
-    rec.runs = 1;
-    rec.denied = 0;
-    rec.locked = false;
-    if (rec.escapePending) rec.escapePending = false;
-    return { fresh: true, runs: 1, lockedNow: false };
+    previous.hash = hash;
+    previous.lastText = text;
+    previous.runs = 1;
+    previous.denied = 0;
+    previous.locked = false;
+    if (previous.escapePending) previous.escapePending = false;
+    fresh = true;
+    runs = 1;
+  } else {
+    previous.runs += 1;
+    previous.lastText = text;
+    previous.denied = 0;
+    if (previous.escapePending) {
+      // 逃生执行返回的仍是同一结果：零信息量被证实，永久锁定
+      previous.escapePending = false;
+      previous.locked = true;
+      lockedNow = true;
+    }
+    fresh = false;
+    runs = previous.runs;
   }
 
-  rec.runs += 1;
-  rec.lastText = text;
-  rec.denied = 0;
-  if (rec.escapePending) {
-    // 逃生执行返回的仍是同一结果：零信息量被证实，永久锁定
-    rec.escapePending = false;
-    rec.locked = true;
-    lockedNow = true;
+  const observation: PostObservation = { fresh, runs, lockedNow, freshProgress: fresh };
+
+  // I1：第二次同结果时预告下次阻断
+  if (!fresh && !lockedNow && runs === settings.repeatLimit && previous !== undefined) {
+    observation.notice = repeatNotice(evidenceOf(previous, settings));
   }
 
-  const observation: PostObservation = { fresh: false, runs: rec.runs, lockedNow };
-  if (!lockedNow && rec.runs === settings.repeatLimit) {
-    observation.notice = repeatNotice(evidenceOf(rec, settings));
+  // ── 全局进展计数（D4/I5） ──
+  state.callsSinceFresh = fresh ? 0 : state.callsSinceFresh + 1;
+  state.interventions = fresh ? 0 : state.interventions + 1;
+  state.overlapCooldown += 1;
+
+  // ── D2 结果重叠：不同参数反复得到近乎相同的结果 ──
+  if (fresh && text.length >= 20 && state.overlapCooldown >= Math.max(2, Math.floor(settings.overlapWindow / 3))) {
+    let best = 0;
+    let bestTool = tool;
+    let similar = 0;
+    for (const entry of state.recent) {
+      if (entry.key === key) continue;
+      const score = lineOverlap(text, entry.text);
+      if (score >= settings.overlapThreshold) {
+        similar += 1;
+        if (score > best) {
+          best = score;
+          bestTool = entry.tool;
+        }
+      }
+    }
+    if (similar > 0 && best >= settings.overlapThreshold) {
+      observation.overlap = overlapNotice(bestTool, best, similar);
+      state.overlapCooldown = 0;
+    }
   }
+
+  // ── D3 错误未解决 ──
+  if (isError) {
+    state.pendingError = {
+      tool,
+      key,
+      digest: preview(text || "(no detail)", 200),
+      strings: [...new Set(argsStrings)],
+      age: 0
+    };
+  } else if (state.pendingError !== null) {
+    const pending = state.pendingError;
+    if (isRemedial(tool, argsStrings, pending, settings)) {
+      state.pendingError = null; // 对症动作出现，错误视为已处理
+    } else {
+      pending.age += 1;
+      if (pending.age >= settings.errorWatchSteps) {
+        observation.errorWatch = errorWatchNotice(pending.tool, pending.digest, pending.age);
+        state.pendingError = null; // 一次性劝告，避免刷屏
+      }
+    }
+  }
+
+  // ── D4 无进展 → I4 进度锚点 ──
+  if (state.callsSinceFresh >= settings.anchorWindow) {
+    observation.anchor = anchorNotice(settings.anchorWindow);
+    state.callsSinceFresh = 0;
+  }
+
+  // 滑动窗口维护
+  state.recent.push({ key, tool, text });
+  if (state.recent.length > settings.overlapWindow) {
+    state.recent.splice(0, state.recent.length - settings.overlapWindow);
+  }
+
   return observation;
 }

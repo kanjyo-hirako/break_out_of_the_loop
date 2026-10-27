@@ -76,9 +76,9 @@ export function repeatNotice(evidence: RepeatEvidence): string {
 }
 
 /** 近似重复（D2/I1）提醒。 */
-export function overlapNotice(tool: string, overlap: number, percent: number): string {
+export function overlapNotice(tool: string, overlap: number, similarCount: number): string {
   return (
-    `[loop-guard] Your recent \`${tool}\` results overlap ${(overlap * 100).toFixed(0)}% with an earlier one (${percent} similar calls in the last window). ` +
+    `[loop-guard] Your recent results overlap ${(overlap * 100).toFixed(0)}% with ${similarCount} earlier call${similarCount > 1 ? "s" : ""} (e.g. \`${tool}\`). ` +
     `You are likely re-searching information already present above. Read the existing result, or change your search target entirely.`
   );
 }

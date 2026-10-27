@@ -34,7 +34,12 @@ const config = {
   searchTools: ["grep"],
   scopeFields: ["path", "include"],
   unscopedSearch: "deny",
-  argumentsPreviewChars: 300
+  argumentsPreviewChars: 300,
+  overlapThreshold: 0.9,
+  overlapWindow: 10,
+  errorWatchSteps: 3,
+  remedialTools: ["read"],
+  anchorWindow: 5
 };
 
 function execOf(agent: object): ToolExec {

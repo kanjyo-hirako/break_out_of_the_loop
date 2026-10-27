@@ -33,7 +33,17 @@ export const Config = z.object({
   /** D5 策略：deny = 无边界搜索直接拒绝并提示加作用域；allow = 放行。 */
   unscopedSearch: z.string().default("deny"),
   /** 阻断理由里参数预览的字符上限。 */
-  argumentsPreviewChars: z.number().default(300)
+  argumentsPreviewChars: z.number().default(300),
+  /** D2：结果重叠度阈值（0-1，行集合 Jaccard）。 */
+  overlapThreshold: z.number().default(0.9),
+  /** D2：重叠度量的滑动窗口（最近 N 次调用结果）。 */
+  overlapWindow: z.number().default(10),
+  /** D3：失败后 N 次调用无对症动作则劝告。 */
+  errorWatchSteps: z.number().default(3),
+  /** D3：视为"对症动作"的工具（通配符）。 */
+  remedialTools: z.array(z.string()).default(["read"]),
+  /** D4：连续 N 次无新结果则注入进度锚点。 */
+  anchorWindow: z.number().default(5)
 });
 
 /** fail-loud 校验并编译运行期设置。 */
@@ -47,6 +57,11 @@ export function validateSettings(config: {
   scopeFields: string[];
   unscopedSearch: string;
   argumentsPreviewChars: number;
+  overlapThreshold: number;
+  overlapWindow: number;
+  errorWatchSteps: number;
+  remedialTools: string[];
+  anchorWindow: number;
 }): GuardSettings {
   const {
     repeatLimit,
@@ -57,7 +72,12 @@ export function validateSettings(config: {
     searchTools,
     scopeFields,
     unscopedSearch,
-    argumentsPreviewChars
+    argumentsPreviewChars,
+    overlapThreshold,
+    overlapWindow,
+    errorWatchSteps,
+    remedialTools,
+    anchorWindow
   } = config;
 
   if (!Number.isInteger(repeatLimit) || repeatLimit < 2) {
@@ -75,6 +95,18 @@ export function validateSettings(config: {
   if (scopeFields.length === 0) {
     throw new Error("loop-guard: `scopeFields` must not be empty");
   }
+  if (!(overlapThreshold > 0 && overlapThreshold <= 1)) {
+    throw new Error(`loop-guard: invalid overlapThreshold ${overlapThreshold} — must be in (0, 1]`);
+  }
+  if (!Number.isInteger(overlapWindow) || overlapWindow < 3) {
+    throw new Error(`loop-guard: invalid overlapWindow ${overlapWindow} — must be an integer >= 3`);
+  }
+  if (!Number.isInteger(errorWatchSteps) || errorWatchSteps < 1) {
+    throw new Error(`loop-guard: invalid errorWatchSteps ${errorWatchSteps} — must be an integer >= 1`);
+  }
+  if (!Number.isInteger(anchorWindow) || anchorWindow < 2) {
+    throw new Error(`loop-guard: invalid anchorWindow ${anchorWindow} — must be an integer >= 2`);
+  }
 
   return {
     repeatLimit,
@@ -85,6 +117,11 @@ export function validateSettings(config: {
     searchTools: searchTools.map(wildcardToRegExp),
     scopeFields: [...scopeFields],
     unscopedSearch: unscopedSearch === "allow" ? "allow" : "deny",
-    argumentsPreviewChars
+    argumentsPreviewChars,
+    overlapThreshold,
+    overlapWindow,
+    errorWatchSteps,
+    remedialTools: remedialTools.map(wildcardToRegExp),
+    anchorWindow
   };
 }
