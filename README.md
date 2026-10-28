@@ -196,8 +196,8 @@ src/
 ### 方式 1：clone 后本地安装
 
 ```powershell
-git clone https://github.com/<your-account>/<repo>
-cd <repo>
+git clone https://github.com/kanjyo-hirako/break_out_of_the_loop.git
+cd break_out_of_the_loop
 npm install            # prepare 脚本自动构建 lib/
 dsh plugin --profile desktop add <repo 的绝对路径>   # 桌面端；完全退出桌面端后执行
 ```
@@ -205,7 +205,7 @@ dsh plugin --profile desktop add <repo 的绝对路径>   # 桌面端；完全�
 ### 方式 2：直接从 git URL 安装（免 clone）
 
 ```powershell
-dsh plugin --profile desktop add git+https://github.com/<your-account>/<repo>.git
+dsh plugin --profile desktop add git+https://github.com/kanjyo-hirako/break_out_of_the_loop.git
 ```
 
 `prepare` 脚本会在安装时自动构建；网页端把 `desktop` 换成 `web`，或在会话里用

@@ -28,10 +28,10 @@
         "en": "Structural loop-breaking guard: blocks zero-information repeat tool calls, detects step replay and error-avoidance loops, and injects actionable escapes.",
         "zh": "结构性循环阻断：切断零信息量的重复工具调用，检测思考重放与错误回避循环，并注入可执行的出口。"
       },
-      "author": "REPLACE_WITH_YOUR_NAME",
-      "homepage": "https://github.com/your-account/dsh-agent-loop-guard",
+      "author": "kanjyo-hirako",
+      "homepage": "https://github.com/kanjyo-hirako/break_out_of_the_loop",
       "repository": {
-        "url": "https://github.com/your-account/dsh-agent-loop-guard"
+        "url": "https://github.com/kanjyo-hirako/break_out_of_the_loop"
       },
       "metadata": {
         "category": "guard",
@@ -44,7 +44,7 @@
           "publishTimestamp": 1793106000,
           "source": {
             "type": "git",
-            "url": "https://github.com/your-account/dsh-agent-loop-guard",
+            "url": "https://github.com/kanjyo-hirako/break_out_of_the_loop",
             "commit": "47a91013df294156d2ca5726b617050e4c0c5904"
           },
           "engines": { "dsh": ">=0.2.1-rc.3" }
