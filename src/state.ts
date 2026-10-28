@@ -231,9 +231,11 @@ export interface PostObservation {
 
 /** D3 判定：这个调用算不算对失败的对症处理。 */
 function isRemedial(tool: string, argsStrings: string[], pending: PendingError, settings: GuardSettings): boolean {
-  // 读取类动作（如 read）是"file has not been read"类失败的标准解法；
-  // 或者与失败调用共享同一个字符串目标（同一文件路径）。
-  if (settings.remedialTools.some((pattern) => pattern.test(tool))) return true;
+  // 对症 = 合格的修复类工具（如 read 是 "file has not been read" 的标准解法）
+  // 且对准同一个目标（与失败调用共享文件路径等字符串）。
+  // 仅共享目标但换搜索类工具不算对症——那正是证据 B 的错误回避循环。
+  if (!settings.remedialTools.some((pattern) => pattern.test(tool))) return false;
+  if (pending.strings.length === 0) return true;
   return argsStrings.some((value) => pending.strings.includes(value));
 }
 

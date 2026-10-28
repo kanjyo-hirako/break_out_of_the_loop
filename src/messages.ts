@@ -50,8 +50,11 @@ export interface RepeatEvidence {
  * 写成模型可直接照做的形式，而非抽象建议。
  */
 export function denyReason(evidence: RepeatEvidence, locked: boolean): string {
+  const runsText = evidence.runs === 1
+    ? "has already executed once and returned this exact result"
+    : `has already executed ${evidence.runs} times and returned byte-identical results`;
   const lines = [
-    `[loop-guard] Duplicate tool call ${locked ? "permanently blocked" : "blocked"}: \`${evidence.tool}\` with identical arguments has already executed ${evidence.runs} times and returned byte-identical results (hash ${evidence.resultHash}). No new information can come from running it again.`,
+    `[loop-guard] Duplicate tool call ${locked ? "permanently blocked" : "blocked"}: \`${evidence.tool}\` with identical arguments ${runsText} (hash ${evidence.resultHash}). No new information can come from running it again.`,
     `Previous result (preserved in the conversation above): ${evidence.resultDigest}`,
     `Do NOT call \`${evidence.tool}\` with these arguments again. Take ONE different action that moves the task forward (read/edit a file, run a command, use another tool, or ask the user). If you have concrete evidence that the world changed since the last run, repeat the exact call one more time and it will be executed exactly once.`
   ];

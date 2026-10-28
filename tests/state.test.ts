@@ -216,31 +216,34 @@ test("D3 失败后连续 N 步无对症动作 → 提醒", () => {
   assert.match(third.errorWatch ?? "", /earlier `grep` failure is still unresolved after 3 calls/);
 });
 
-test("D3 对症动作（read 或共享路径）出现即解除", () => {
+test("D3 read 目标文件即解除", () => {
   const state = createAgentState();
   runCall(state, "kE", "HE", settings, {
     isError: true,
     text: "Error: file has not been read.",
     argsStrings: ["src/a.ts"]
   });
-  // read 是默认对症工具
-  runCall(state, "kRead", "HR", settings, { text: "file content", argsStrings: ["other.ts"], tool: "read" });
+  // read + 同一目标（src/a.ts）→ 对症解除
+  runCall(state, "kRead", "HR", settings, { text: "file content here", argsStrings: ["src/a.ts"], tool: "read" });
   for (let i = 0; i < 5; i++) {
     assert.equal(runCall(state, `g${i}`, `H${i}`, settings, { text: `r${i}`, argsStrings: [`x${i}.ts`] }).errorWatch, undefined);
   }
 });
 
-test("D3 共享同一路径字符串也算对症", () => {
+test("D3 仅共享路径但用搜索工具不算对症（证据 B 的回避形态）", () => {
   const state = createAgentState();
   runCall(state, "kE", "HE", settings, {
     isError: true,
     text: "Error: edit failed",
     argsStrings: ["src/a.ts"]
   });
-  // 换了工具且共享路径 → 视为对症
-  const obs = runCall(state, "kGrep", "HG", settings, { text: "matches", argsStrings: ["src/a.ts", "other"] });
-  assert.equal(obs.errorWatch, undefined);
-  assert.equal(state.pendingError, null);
+  // grep 同一文件：目标对了但工具不对 → 不算对症，计数继续
+  const first = runCall(state, "kGrep", "HG", settings, { text: "matches", argsStrings: ["src/a.ts", "other"] });
+  assert.equal(first.errorWatch, undefined);
+  assert.notEqual(state.pendingError, null);
+  runCall(state, "g1", "H1", settings, { text: "r1", argsStrings: ["src/a.ts"] });
+  const third = runCall(state, "g2", "H2", settings, { text: "r2", argsStrings: ["src/a.ts"] });
+  assert.match(third.errorWatch ?? "", /still unresolved/);
 });
 
 // ── D4 无进展 → I4 锚点 ──────────────────────────────────────────────────────
