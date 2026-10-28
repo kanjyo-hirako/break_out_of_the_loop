@@ -25,6 +25,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-isolation=none tests/canonical.test.ts tests/state.test.ts tests/plugin.test.ts tests/replay.test.ts",
     "validate-index": "node scripts/validate-market-index.mjs",

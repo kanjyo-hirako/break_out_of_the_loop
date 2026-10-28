@@ -191,26 +191,38 @@ src/
 ## 安装与部署
 
 本仓库即一个标准 DSH **bundle**（`dsh.bundle.patch` + `cordis.patch.yml` +
-`locale/` + `icon.svg`），通过官方 `plugin_manager` 安装，不触碰 `app.asar`：
+`locale/` + `icon.svg`），不触碰 `app.asar`。**无需发布 npm**，三种方式任选：
+
+### 方式 1：clone 后本地安装
 
 ```powershell
-npm install && npm run build        # 本地目录安装是链接 checkout，先构建 lib/
+git clone https://github.com/<your-account>/<repo>
+cd <repo>
+npm install            # prepare 脚本自动构建 lib/
+dsh plugin --profile desktop add <repo 的绝对路径>   # 桌面端；完全退出桌面端后执行
 ```
 
-```json
-plugin_manager { "action": "install_bundle", "target": "D:\\something_else\\web\\out_of_loop" }
+### 方式 2：直接从 git URL 安装（免 clone）
+
+```powershell
+dsh plugin --profile desktop add git+https://github.com/<your-account>/<repo>.git
 ```
 
-以安装结果 `application: applied` 为准（`restart-required` 则重启 DSH）。
+`prepare` 脚本会在安装时自动构建；网页端把 `desktop` 换成 `web`，或在会话里用
+`plugin_manager { "action": "install_bundle", "target": "<包目录或 git 规格>" }`。
+
+### 方式 3：插件市场（Discover）安装
+
+把 `market/index.json` 托管到稳定 https URL，用户在 DSH 的 Discover 标签页
+添加索引源后搜索安装；索引条目按 git 源钉死 commit，不依赖 npm。
+
+以安装结果 `application: applied` 为准（`restart-required` 则重启）。
 自带补丁默认 **`noticeOnly: true`**（只提醒）；灰度确认后改 `false` 开阻断档。
-
-**桌面端（Desktop）**：完全兼容（Host-only bundle，与网页端共享 agent 运行时）。
-用 `dsh plugin --profile desktop add <本包目录>` 或应用内 `plugin_manager` 安装，
-装后重启桌面端；详见安装指南的桌面端专节。
+桌面端与网页端共享 agent 运行时，完全兼容；升级 = `git pull` 后重装并重启。
 
 **详细步骤**：[docs/INSTALL.md](docs/INSTALL.md)
-**发布到 GitHub 插件市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（索引格式、
-git/npm 双源、`market/index.json` 校验、发版流程）
+**发布与市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（git 源为推荐路径；
+npm 发布可选，仅换来更短的安装命令）
 
 ## 开发与测试
 

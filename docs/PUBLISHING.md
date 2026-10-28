@@ -31,6 +31,14 @@ DSH 的插件市场**没有中央商店**：所谓"市场"是**用户自行配�
 
 ### 方案 A：git 源（免 npm 账号，推荐起步）
 
+**不发 npm 也完全自足**：使用者三条路都不经过 npm——
+
+| 用户操作 | 说明 |
+|---|---|
+| `git clone` 后 `npm install` + `dsh plugin --profile desktop add <目录>` | 本地安装（fork 只在想改代码时才需要） |
+| `dsh plugin --profile desktop add git+https://github.com/<you>/<repo>.git` | 免 clone，`prepare` 脚本自动构建 |
+| Discover 索引源一键安装 | 索引条目即下方 git 源 |
+
 索引条目的 `source` 指向你的 GitHub 仓库 + **40 位 commit SHA 钉死**：
 
 ```json
@@ -42,9 +50,10 @@ DSH 的插件市场**没有中央商店**：所谓"市场"是**用户自行配�
 ```
 
 市场会生成安装参数 `git+https://github.com/your-account/dsh-agent-loop-guard.git#<commit>`。
-若包在仓库子目录，加 `"path": "sub/dir"`。
+若包在仓库子目录，加 `"path": "sub/dir"`。包的 `prepare` 脚本保证 git 安装时
+自动构建 `lib/`（否则安装到的是无产物的源码）。
 
-### 方案 B：npm 源
+### 方案 B：npm 源（可选，仅换来更短的安装命令）
 
 ```json
 "source": { "type": "npm", "registry": "https://registry.npmjs.org" }
