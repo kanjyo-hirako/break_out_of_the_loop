@@ -7,20 +7,59 @@
 当 agent 陷入工具循环（同一个调用反复执行、结果逐字节相同、思考内容都在重放）时，
 上下文被垃圾块填满、响应越来越慢、之后无论发什么都会继续循环。
 内置的 `dsh-repeat-tool-reminder` 是**纯劝告**的哨兵；本插件是**结构性阻断**的闸门。
+抽象地说，本插件能够"跳出"这种"恶心循环"，做到dsh内置插件做不到的事情
 
 ---
 
 ## 目录
 
+- [安装与部署](#安装与部署)
 - [背景：这个循环长什么样](#背景这个循环长什么样)
 - [功能](#功能)
 - [与内置插件的区别](#与内置插件的区别)
 - [技术实现](#技术实现)
 - [配置参考](#配置参考)
-- [安装与部署](#安装与部署)
 - [开发与测试](#开发与测试)
 - [能力边界（诚实说明）](#能力边界诚实说明)
 - [License](#license)
+
+---
+
+## 安装与部署
+
+本仓库即一个标准 DSH **bundle**（`dsh.bundle.patch` + `cordis.patch.yml` +
+`locale/` + `icon.svg`），不触碰 `app.asar`。**无需发布 npm**，三种方式任选：
+
+### 方式 1：clone 后本地安装
+
+```powershell
+git clone https://github.com/kanjyo-hirako/break_out_of_the_loop.git
+cd break_out_of_the_loop
+npm install            # prepare 脚本自动构建 lib/
+dsh plugin --profile desktop add <repo 的绝对路径>   # 桌面端；完全退出桌面端后执行
+```
+
+### 方式 2：直接从 git URL 安装（免 clone）
+
+```powershell
+dsh plugin --profile desktop add git+https://github.com/kanjyo-hirako/break_out_of_the_loop.git
+```
+
+`prepare` 脚本会在安装时自动构建；网页端把 `desktop` 换成 `web`，或在会话里用
+`plugin_manager { "action": "install_bundle", "target": "<包目录或 git 规格>" }`。
+
+### 方式 3：插件市场（Discover）安装
+
+把 `market/index.json` 托管到稳定 https URL，用户在 DSH 的 Discover 标签页
+添加索引源后搜索安装；索引条目按 git 源钉死 commit，不依赖 npm。
+
+以安装结果 `application: applied` 为准（`restart-required` 则重启）。
+自带补丁默认 **`noticeOnly: true`**（只提醒）；灰度确认后改 `false` 开阻断档。
+桌面端与网页端共享 agent 运行时，完全兼容；升级 = `git pull` 后重装并重启。
+
+**详细步骤**：[docs/INSTALL.md](docs/INSTALL.md)
+**发布与市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（git 源为推荐路径；
+npm 发布可选，仅换来更短的安装命令）
 
 ---
 
@@ -190,53 +229,18 @@ src/
 
 非法配置在装入时抛出明确错误（沿用内置守卫的 fail-loud 约定，绝不静默回退）。
 
-## 安装与部署
-
-本仓库即一个标准 DSH **bundle**（`dsh.bundle.patch` + `cordis.patch.yml` +
-`locale/` + `icon.svg`），不触碰 `app.asar`。**无需发布 npm**，三种方式任选：
-
-### 方式 1：clone 后本地安装
-
-```powershell
-git clone https://github.com/kanjyo-hirako/break_out_of_the_loop.git
-cd break_out_of_the_loop
-npm install            # prepare 脚本自动构建 lib/
-dsh plugin --profile desktop add <repo 的绝对路径>   # 桌面端；完全退出桌面端后执行
-```
-
-### 方式 2：直接从 git URL 安装（免 clone）
-
-```powershell
-dsh plugin --profile desktop add git+https://github.com/kanjyo-hirako/break_out_of_the_loop.git
-```
-
-`prepare` 脚本会在安装时自动构建；网页端把 `desktop` 换成 `web`，或在会话里用
-`plugin_manager { "action": "install_bundle", "target": "<包目录或 git 规格>" }`。
-
-### 方式 3：插件市场（Discover）安装
-
-把 `market/index.json` 托管到稳定 https URL，用户在 DSH 的 Discover 标签页
-添加索引源后搜索安装；索引条目按 git 源钉死 commit，不依赖 npm。
-
-以安装结果 `application: applied` 为准（`restart-required` 则重启）。
-自带补丁默认 **`noticeOnly: true`**（只提醒）；灰度确认后改 `false` 开阻断档。
-桌面端与网页端共享 agent 运行时，完全兼容；升级 = `git pull` 后重装并重启。
-
-**详细步骤**：[docs/INSTALL.md](docs/INSTALL.md)
-**发布与市场**：[docs/PUBLISHING.md](docs/PUBLISHING.md)（git 源为推荐路径；
-npm 发布可选，仅换来更短的安装命令）
-
 ## 开发与测试
 
 ```bash
 npm install
 npm run typecheck   # tsc --noEmit
-npm test            # node --test（41 项单测，进程内运行）
+npm test            # node --test（42 项单测，进程内运行）
 npm run build       # tsc → lib/
 ```
 
 - 测试覆盖：规范化/哈希、状态机全决策表（含逃生与锁定、轮询安全）、
   D2/D3/D4 信号、D1' 帧聚合、I5 熔断、插件端到端（mock 瀑布）；
+- `scripts/demo-loop-guard.mjs`：5 组循环场景的完整决策轨迹演示（测试数据）；
 - `scripts/asar_extract.py`：从 DSH 安装目录的 `app.asar` 精确提取官方接口文档
   与参考实现，供开发参照（第三方源码放 `reference/`，不入版本库）。
 
