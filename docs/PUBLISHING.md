@@ -60,6 +60,20 @@ DSH 的插件市场**没有中央商店**：所谓"市场"是**用户自行配�
   `market/index.json` 的 `name`（含 `versions` 不变）；
 - `npm publish` 前 `prepublishOnly` 会自动 `build` + `validate-index`。
 
+**npm 发布操作序列**（先完成本地安装验证再发版——版本号发布后不可覆盖）：
+
+```powershell
+npm login            # 浏览器登录 npmjs.com（需注册账号、验证邮箱、开启 2FA）
+npm whoami           # 确认身份
+npm view dsh-agent-loop-guard   # 确认名字仍可用（应报 404）
+npm publish          # 自动执行 build + validate-index
+npm view dsh-agent-loop-guard   # 验证已上架
+git tag v0.1.0 && git push --tags   # 标记发布点
+```
+
+非 scoped 包默认公开，无需 `--access public`。发布完成后把本文件顶部索引里
+`versions[].source` 换成上面的 npm 源（或为新版本追加条目），再 `validate-index`。
+
 ## 三、写市场索引（market/index.json）
 
 format 1 的关键字段（完整可执行规则是官方 `@deepseek-ai/dsh-plugin-market-index`，
