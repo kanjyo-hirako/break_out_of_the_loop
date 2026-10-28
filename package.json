@@ -1,5 +1,5 @@
 {
-  "name": "dsh-loop-guard",
+  "name": "dsh-agent-loop-guard",
   "version": "0.1.0",
   "description": "Structural loop-breaking guard for DSH agents: blocks zero-information repeat tool calls and injects actionable escapes.",
   "type": "module",

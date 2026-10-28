@@ -5,8 +5,8 @@
     "zh": "循环守卫插件索引"
   },
   "description": {
-    "en": "Market index for dsh-loop-guard, a structural loop-breaking guard for DeepSeek Harness agents.",
-    "zh": "dsh-loop-guard 的插件市场索引：DSH agent 结构性循环守卫。"
+    "en": "Market index for dsh-agent-loop-guard, a structural loop-breaking guard for DeepSeek Harness agents.",
+    "zh": "dsh-agent-loop-guard 的插件市场索引：DSH agent 结构性循环守卫。"
   },
   "metadata": {
     "categories": {
@@ -22,16 +22,16 @@
   },
   "plugins": [
     {
-      "name": "dsh-loop-guard",
+      "name": "dsh-agent-loop-guard",
       "title": { "en": "Loop Guard", "zh": "循环守卫" },
       "description": {
         "en": "Structural loop-breaking guard: blocks zero-information repeat tool calls, detects step replay and error-avoidance loops, and injects actionable escapes.",
         "zh": "结构性循环阻断：切断零信息量的重复工具调用，检测思考重放与错误回避循环，并注入可执行的出口。"
       },
       "author": "REPLACE_WITH_YOUR_NAME",
-      "homepage": "https://github.com/your-account/dsh-loop-guard",
+      "homepage": "https://github.com/your-account/dsh-agent-loop-guard",
       "repository": {
-        "url": "https://github.com/your-account/dsh-loop-guard"
+        "url": "https://github.com/your-account/dsh-agent-loop-guard"
       },
       "metadata": {
         "category": "guard",
@@ -44,7 +44,7 @@
           "publishTimestamp": 1793106000,
           "source": {
             "type": "git",
-            "url": "https://github.com/your-account/dsh-loop-guard",
+            "url": "https://github.com/your-account/dsh-agent-loop-guard",
             "commit": "47a91013df294156d2ca5726b617050e4c0c5904"
           },
           "engines": { "dsh": ">=0.2.1-rc.3" }

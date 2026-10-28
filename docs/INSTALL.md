@@ -80,7 +80,7 @@ plugin_manager { "action": "install_bundle", "target": "D:\\something_else\\web\
 ```yaml
 - insert:
     - id: loop-guard
-      name: 'dsh-loop-guard'
+      name: 'dsh-agent-loop-guard'
       config:
         noticeOnly: false      # 开启结构性阻断
         # 其它字段见 README「配置参考」；行上 config 是整体声明，改则写全所需字段

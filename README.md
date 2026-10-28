@@ -1,4 +1,4 @@
-# dsh-loop-guard
+# dsh-agent-loop-guard
 
 > **Structural loop-breaking guard for DeepSeek Harness (DSH) agents.**
 > 在工具决策链上物理切断"零信息量"的重复调用，并给模型指出活路——
@@ -79,7 +79,7 @@ one more time and it will be executed exactly once.
 内置 `dsh-repeat-tool-reminder`（`dsh` 基础包默认开启）是本插件的参照物与互补件。
 它的 README 原文承认：阻断"留给后来的 listener"——本插件就是那个 listener。
 
-| | `dsh-repeat-tool-reminder` | **dsh-loop-guard** |
+| | `dsh-repeat-tool-reminder` | **dsh-agent-loop-guard** |
 |---|---|---|
 | 信条 | Advisory, not veto（只劝告） | 结构性切断 + 可升级阻断 |
 | 判据 | 仅 `(工具, 规范化参数)` 精确相等，**不看结果** | 参数 + **结果哈希** + 重放签名 + 结果重叠 |
@@ -165,7 +165,7 @@ src/
 ## 配置参考
 
 ```yaml
-- name: 'dsh-loop-guard'
+- name: 'dsh-agent-loop-guard'
   config:
     repeatLimit: 2          # 同结果执行几次即认定零信息量
     escapeRuns: 1           # 逃生口次数（拒绝后坚持重试的放行额度）

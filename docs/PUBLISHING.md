@@ -36,12 +36,12 @@ DSH 的插件市场**没有中央商店**：所谓"市场"是**用户自行配�
 ```json
 "source": {
   "type": "git",
-  "url": "https://github.com/your-account/dsh-loop-guard",
+  "url": "https://github.com/your-account/dsh-agent-loop-guard",
   "commit": "<发布点的 40 位小写 commit SHA>"
 }
 ```
 
-市场会生成安装参数 `git+https://github.com/your-account/dsh-loop-guard.git#<commit>`。
+市场会生成安装参数 `git+https://github.com/your-account/dsh-agent-loop-guard.git#<commit>`。
 若包在仓库子目录，加 `"path": "sub/dir"`。
 
 ### 方案 B：npm 源
@@ -50,12 +50,14 @@ DSH 的插件市场**没有中央商店**：所谓"市场"是**用户自行配�
 "source": { "type": "npm", "registry": "https://registry.npmjs.org" }
 ```
 
-生成安装参数 `dsh-loop-guard@0.1.0`。注意：
+生成安装参数 `dsh-agent-loop-guard@0.1.0`。注意：
 
-- **`dsh-loop-guard` 这个名字在 npm 上已被占用**（已验证）。走 npm 必须换
-  scoped 名，如 `@your-npm-name/dsh-loop-guard`，同步改三处：
-  `package.json` 的 `name`、`cordis.patch.yml` 行的 `name`、`market/index.json` 的
-  `name`（含 `versions` 不变）；
+- **包名 `dsh-agent-loop-guard` 已验证未被占用**（2026-10 查询 registry 返回 404）。
+  原名 `dsh-loop-guard` 与 npm 上的同名包冲突，已弃用；发布前建议再查一次
+  `npm view dsh-agent-loop-guard` 确认仍可用，然后尽快 `npm publish` 占位；
+- 若想改用自己 npm 账号的 scoped 名（如 `@your-npm-name/dsh-agent-loop-guard`），
+  同步改三处：`package.json` 的 `name`、`cordis.patch.yml` 行的 `name`、
+  `market/index.json` 的 `name`（含 `versions` 不变）；
 - `npm publish` 前 `prepublishOnly` 会自动 `build` + `validate-index`。
 
 ## 三、写市场索引（market/index.json）
@@ -74,7 +76,7 @@ format 1 的关键字段（完整可执行规则是官方 `@deepseek-ai/dsh-plug
     "sortKeys":   { "<id>": { "title": {...}, "order": "asc|desc" } }
   },
   "plugins": [{
-    "name": "dsh-loop-guard",                     // 必填，npm 包名规则
+    "name": "dsh-agent-loop-guard",                     // 必填，npm 包名规则
     "title": { ... }, "description": { ... },     // 可选本地化
     "icon": "https://... 或 data:image/...;base64,...",  // 可选（data ≤32 KiB）
     "author": "...", "homepage": "https://...",   // 可选
@@ -96,7 +98,7 @@ format 1 的关键字段（完整可执行规则是官方 `@deepseek-ai/dsh-plug
 ```powershell
 npm run validate-index
 # market/index.json OK — 1 plugin(s), index "Loop Guard Plugin Index"
-#   dsh-loop-guard@0.1.0 -> git+https://github.com/.../dsh-loop-guard.git#<commit>
+#   dsh-agent-loop-guard@0.1.0 -> git+https://github.com/.../dsh-agent-loop-guard.git#<commit>
 ```
 
 ### engines.dsh 的坑
@@ -110,7 +112,7 @@ npm run validate-index
 把 `market/index.json` 放到稳定 https 地址，例如：
 
 ```
-https://raw.githubusercontent.com/your-account/dsh-loop-guard/main/market/index.json
+https://raw.githubusercontent.com/your-account/dsh-agent-loop-guard/main/market/index.json
 ```
 
 或 GitHub Pages。要求：**https、无重定向、URL 无 query/fragment**（DSH 拒绝跟随

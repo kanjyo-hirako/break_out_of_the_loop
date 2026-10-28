@@ -1,12 +1,12 @@
 /**
- * dsh-loop-guard —— 结构性循环守卫插件。
+ * dsh-agent-loop-guard —— 结构性循环守卫插件。
  *
  * 与内置 `dsh-repeat-tool-reminder`（纯劝告、精确同参计数、3/5/8 提醒）
  * 互补：本插件在工具决策链上**结构性切断**零信息量重复（同参 + 同结果），
  * 并覆盖近似重复漂移（D2）、错误回避循环（D3）与无进展状态（D4）。
  * 设计文档见仓库 README。
  *
- * @module dsh-loop-guard
+ * @module dsh-agent-loop-guard
  */
 
 import { canonicalize, hashResult, resultText } from "./canonical.ts";
