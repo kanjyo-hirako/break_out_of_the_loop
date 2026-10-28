@@ -40,6 +40,7 @@ export interface GuardSettings {
   argumentsPreviewChars: number;
   overlapThreshold: number;
   overlapWindow: number;
+  overlapTools: RegExp[];
   errorWatchSteps: number;
   remedialTools: RegExp[];
   anchorWindow: number;
@@ -297,8 +298,14 @@ export function observePostCall(
   state.callsSinceFresh = fresh ? 0 : state.callsSinceFresh + 1;
   state.overlapCooldown += 1;
 
-  // ── D2 结果重叠：不同参数反复得到近乎相同的结果 ──
-  if (fresh && text.length >= 20 && state.overlapCooldown >= Math.max(2, Math.floor(settings.overlapWindow / 3))) {
+  // ── D2 结果重叠：不同参数反复得到近乎相同的结果（仅信息收集类工具——
+  //    edit/write 的状态回执文本相似是正常现象，不算"重复搜索"） ──
+  if (
+    fresh
+    && text.length >= 20
+    && settings.overlapTools.some((pattern) => pattern.test(tool))
+    && state.overlapCooldown >= Math.max(2, Math.floor(settings.overlapWindow / 3))
+  ) {
     let best = 0;
     let bestTool = tool;
     let similar = 0;

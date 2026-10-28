@@ -16,6 +16,7 @@ const settings: GuardSettings = validateSettings({
   argumentsPreviewChars: 300,
   overlapThreshold: 0.9,
   overlapWindow: 10,
+  overlapTools: ["grep", "read"],
   errorWatchSteps: 3,
   remedialTools: ["read"],
   anchorWindow: 5,

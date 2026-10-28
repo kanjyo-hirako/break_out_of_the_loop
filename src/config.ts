@@ -38,6 +38,8 @@ export const Config = z.object({
   overlapThreshold: z.number().default(0.9),
   /** D2：重叠度量的滑动窗口（最近 N 次调用结果）。 */
   overlapWindow: z.number().default(10),
+  /** D2：仅对这些"信息收集类"工具做重叠检测（通配符）；状态文本（如 edit 成功回执）不算重复搜索。 */
+  overlapTools: z.array(z.string()).default(["grep", "search", "search_file_content", "glob", "read"]),
   /** D3：失败后 N 次调用无对症动作则劝告。 */
   errorWatchSteps: z.number().default(3),
   /** D3：视为"对症动作"的工具（通配符）。 */
@@ -65,6 +67,7 @@ export function validateSettings(config: {
   argumentsPreviewChars: number;
   overlapThreshold: number;
   overlapWindow: number;
+  overlapTools: string[];
   errorWatchSteps: number;
   remedialTools: string[];
   anchorWindow: number;
@@ -84,6 +87,7 @@ export function validateSettings(config: {
     argumentsPreviewChars,
     overlapThreshold,
     overlapWindow,
+    overlapTools,
     errorWatchSteps,
     remedialTools,
     anchorWindow,
@@ -138,6 +142,7 @@ export function validateSettings(config: {
     argumentsPreviewChars,
     overlapThreshold,
     overlapWindow,
+    overlapTools: overlapTools.map(wildcardToRegExp),
     errorWatchSteps,
     remedialTools: remedialTools.map(wildcardToRegExp),
     anchorWindow,

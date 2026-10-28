@@ -36,6 +36,7 @@ const config = {
   argumentsPreviewChars: 120,
   overlapThreshold: 0.9,
   overlapWindow: 10,
+  overlapTools: ["grep", "search", "search_file_content", "glob", "read"],
   errorWatchSteps: 3,
   remedialTools: ["read"],
   anchorWindow: 5,

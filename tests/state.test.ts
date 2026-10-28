@@ -15,6 +15,7 @@ const baseConfig = {
   argumentsPreviewChars: 300,
   overlapThreshold: 0.9,
   overlapWindow: 10,
+  overlapTools: ["grep", "read"],
   errorWatchSteps: 3,
   remedialTools: ["read"],
   anchorWindow: 5,
@@ -197,6 +198,13 @@ test("D2 同 key 的精确重复不重复报（归 D1 管）", () => {
   runCall(state, "kA", "HA", settings, { text: textA });
   const obs = runCall(state, "kA", "HA", settings, { text: textA });
   assert.equal(obs.overlap, undefined);
+});
+
+test("D2 状态回执类工具不触发（edit 成功文本相似是正常现象）", () => {
+  const state = createAgentState();
+  const status = "Edit applied successfully. 3 replacements made in the file.";
+  assert.equal(runCall(state, "e1", "HE1", settings, { text: status, tool: "edit" }).overlap, undefined);
+  assert.equal(runCall(state, "e2", "HE2", settings, { text: status, tool: "edit" }).overlap, undefined);
 });
 
 // ── D3 错误未解决 ────────────────────────────────────────────────────────────
