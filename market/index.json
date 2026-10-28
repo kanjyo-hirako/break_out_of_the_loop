@@ -41,11 +41,11 @@
       "versions": [
         {
           "version": "0.1.0",
-          "publishTimestamp": 1793106000,
+          "publishTimestamp": 1793202224,
           "source": {
             "type": "git",
             "url": "https://github.com/kanjyo-hirako/break_out_of_the_loop",
-            "commit": "47a91013df294156d2ca5726b617050e4c0c5904"
+            "commit": "1c09ff76dd5dbf3da443e6bd95671bb698030f8e"
           },
           "engines": { "dsh": ">=0.2.1-rc.3" }
         }
